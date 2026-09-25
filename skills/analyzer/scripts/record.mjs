@@ -18,13 +18,15 @@
 //            [--default-type <type>] [--origin <origin>] [--deploy-status pending] [--since <date>] [--dry-run]
 //   baseline --metric <id> --start <date> --end <date> [--source <id>]
 //            [--page /a] [--query <q>] [--country <c>] [--segment <s>] [--experiment EX-NNN]
+//   opportunity --title <t> --type <type> --evidence "<observed numbers>" [--query] [--page] [--market]
+//            [--owner marketer7|signal7|hyper7] [--estimated-clicks N] [--source-path <report>]
 //   status   --id AN-NNN|SEO-OPP-NNN --status <status> [--note <text>]
 //
 // Common: [--project <dir>] [--now <ISO>]. Output: one JSON object.
 
 import path from 'node:path';
 import {UsageError, isoDate, nowIso, parseArgs, printJson, readJson, requireInitialized, resolveProject, runCli, scopeFromArgs, writeJson} from './lib/core.mjs';
-import {activeChangeByRef, deployChanges, recordBaseline, registerChange, registerSource, updateStatus} from './lib/records.mjs';
+import {activeChangeByRef, createOpportunity, deployChanges, recordBaseline, registerChange, registerSource, updateStatus} from './lib/records.mjs';
 import {parseChangeLog} from './lib/changelog.mjs';
 
 const COMMON = ['project', 'now'];
@@ -127,6 +129,20 @@ const COMMANDS = {
     if (!args.metric || !args.start || !args.end) throw new UsageError('baseline needs --metric, --start, and --end');
     const record = recordBaseline(root, {metricId: args.metric, sourceId: args.source, period: {start: args.start, end: args.end}, scope: scopeFromArgs(args), experimentId: args.experiment ?? null, now: nowIso(args.now)});
     printJson({status: 'recorded', ...record});
+  },
+
+  // A manually evidenced opportunity (for example from a per-market review).
+  // The evidence text must cite observed numbers; it is redacted like any write.
+  opportunity(argv) {
+    const args = parseArgs(argv, {options: [...COMMON, 'title', 'type', 'query', 'page', 'market', 'evidence', 'owner', 'estimated-clicks', 'source-path']});
+    const root = requireInitialized(resolveProject(args.project));
+    for (const key of ['title', 'type', 'evidence']) if (!args[key]) throw new UsageError('opportunity needs --title, --type and --evidence');
+    const types = ['ctr_opportunity', 'cannibalization', 'content_decay', 'striking_distance', 'visibility_loss', 'technical', 'indexation', 'localization', 'other'];
+    if (!types.includes(args.type)) throw new UsageError(`--type must be one of ${types.join(', ')}`);
+    const now = nowIso(args.now);
+    const fields = {title: args.title, type: args.type, dedupe_key: `manual:${args.type}:${args.market ?? ''}:${args.query ?? ''}:${args.page ?? ''}`, query: args.query ?? null, page: args.page ?? null, market: args.market ?? null, estimated_click_gain_28d: args.estimatedClicks === undefined ? null : Number(args.estimatedClicks), suggested_owner: args.owner ?? 'marketer7', origin: 'manual_review'};
+    const body = `## Evidence\n\n${args.evidence}\n\n${args.sourcePath ? `Source: \`${args.sourcePath}\`\n\n` : ''}`;
+    printJson(createOpportunity(root, fields, body, now));
   },
 
   status(argv) {

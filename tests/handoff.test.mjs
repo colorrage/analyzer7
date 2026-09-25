@@ -63,3 +63,13 @@ test('exports list tracks what Marketer7 consumed; Marketer7\'s helper agrees', 
     assert.deepEqual(validateMarketerState(path.join(project, '.marketer')).errors, [], 'Marketer7 accepts the consumed reference');
   }
 });
+
+test('a manually evidenced opportunity can be recorded and exported', () => {
+  const project = setupEcosystem(copyFixture());
+  const made = run('record.mjs', ['opportunity', '--project', project, '--title', 'ecmr visibility loss (ES)', '--type', 'visibility_loss', '--query', 'ecmr', '--market', 'esp', '--evidence', 'Impressions 142.9/day → 5.1/day, position ~20 → 23 (GSC query×page×country).', '--now', NOW]);
+  assert.equal(made.status, 'recorded');
+  assert.equal(run('record.mjs', ['opportunity', '--project', project, '--title', 'again', '--type', 'visibility_loss', '--query', 'ecmr', '--market', 'esp', '--evidence', 'x', '--now', NOW]).status, 'already_recorded');
+  const exported = run('exports.mjs', ['opportunities', '--project', project, '--ids', made.id, '--now', NOW]);
+  assert.equal(readFrontmatter(path.join(project, exported.results[0].export)).type, 'visibility_loss');
+  assert.ok(validateState(project).ok, validateState(project).output);
+});
