@@ -51,4 +51,6 @@ Correlation is never reported as causation. With linked changes and caveats, the
 
 ## Experiments
 
-Analyzer7 compares the observed primary value with Marketer7's locked thresholds. It reports `success_threshold_met`, `failure_threshold_met`, `between_thresholds`, `insufficient_data`, or `thresholds_unparseable`. It never writes `win`, `loss`, or a route decision. The measured Marketer7 definition fingerprint is recorded in every experiment evidence record.
+Analyzer7 compares the observed primary value with Marketer7's locked thresholds. It reports `success_threshold_met`, `failure_threshold_met`, `between_thresholds`, `insufficient_data`, or `thresholds_unparseable`.
+
+Thresholds are used only under locked criteria. The current definition must match the review-time lock (`criteria_basis: review_lock`), or an approved Marketer7 criteria override must replace that lock with exactly the current definition (`criteria_basis: override CO-NNN`). Otherwise the measured values are still recorded, but the threshold result is withheld as `criteria_changed` (the definition moved without governance) or `criteria_not_locked` (never reviewed). A changed threshold can never retroactively decide a result. It never writes `win`, `loss`, or a route decision. The measured Marketer7 definition fingerprint is recorded in every experiment evidence record.

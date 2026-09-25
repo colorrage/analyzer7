@@ -22,6 +22,8 @@ MONITOR detects meaningful deviations without alert spam.
 
 - Windows end at the source's `data_through` and compare with the immediately preceding window. Use multiples of 7 days so the weekday mix matches; other lengths are flagged.
 - An alert needs **all** guards: relative change, absolute change, minimum sample, direction, and |statistic| ≥ `min_significance`. A reading that fails a guard is reported as `quiet`, with the failed guards named.
+- Significance must be computable: with no variance estimate (for example a mean metric over windows shorter than 7 days) the guard fails. Monitor with ≥ 7-day windows over daily rows.
+- Minimum sample: for counts, the previous (reference) window must reach `min_sample`, so a collapse from a reliable baseline still alerts while a spike from a tiny baseline does not. For ratios and means, both windows must reach it.
 - Tracking break: data that vanishes or drops to zero after real volume alerts on its own (severity high), because it invalidates every other reading.
 - An unavailable source produces `insufficient_data`, never an alert about the metric.
 

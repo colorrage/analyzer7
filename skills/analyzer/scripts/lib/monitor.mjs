@@ -1,6 +1,7 @@
 // MONITOR: evaluate monitors.json rules against the latest data. An alert
 // needs ALL of: relative threshold, absolute threshold, minimum sample, the
-// declared direction, and a significance guard (|statistic| >= 2 by default).
+// declared direction, and a significance guard (|statistic| >= 2 by default;
+// an unknown statistic fails the guard).
 // Noise that passes one threshold but not the others is reported as `quiet`,
 // not raised. Tracking breaks (data vanishing or dropping to zero) alert on
 // their own because they invalidate every other reading.
@@ -58,13 +59,21 @@ export function evaluateMonitor(root, project, monitor, now) {
   const checks = {
     relative: deltaPct !== null && Math.abs(deltaPct) >= relative,
     absolute: Math.abs(deltaAbs) >= absolute,
-    sample: Math.max(comparison.before.sample ?? 0, comparison.after.sample ?? 0) >= minSample,
+    // Counts: the reference (previous) period must carry the minimum volume;
+    // the current count IS the signal, so a collapse from a reliable baseline
+    // must still alert. Ratios/means: both periods, because a tiny current
+    // denominator makes the current estimate itself unreliable.
+    sample: comparison.aggregation === 'sum'
+      ? (comparison.before.sample ?? 0) >= minSample
+      : Math.min(comparison.before.sample ?? 0, comparison.after.sample ?? 0) >= minSample,
     direction: direction === 'both' || (direction === 'decrease' ? deltaAbs < 0 : deltaAbs > 0),
-    significance: comparison.significance.statistic === null || Math.abs(comparison.significance.statistic) >= minSignificance,
+    // No variance estimate means noise cannot be excluded: the guard fails.
+    significance: comparison.significance.statistic !== null && Math.abs(comparison.significance.statistic) >= minSignificance,
   };
   const failed = Object.entries(checks).filter(([, passed]) => !passed).map(([name]) => name);
   const summary = `${metric.id} ${previousValue} → ${currentValue} (${deltaPct > 0 ? '+' : ''}${deltaPct}%)`;
-  if (failed.length) return {...base, outcome: 'quiet', delta_pct: deltaPct, delta_abs: round(deltaAbs), reason: `${summary}; not alerted: ${failed.join(', ')} guard not met`, checks};
+  const note = checks.significance || comparison.significance.statistic !== null ? '' : ` (no variance estimate via ${comparison.significance.method}: use windows of ≥ 7 days with daily rows)`;
+  if (failed.length) return {...base, outcome: 'quiet', delta_pct: deltaPct, delta_abs: round(deltaAbs), reason: `${summary}; not alerted: ${failed.join(', ')} guard not met${note}`, checks};
   return {...base, outcome: 'alert', kind: 'threshold_breach', severity: monitor.severity ?? 'medium', delta_pct: deltaPct, delta_abs: round(deltaAbs), reason: `${summary} over ${days}-day windows; every guard met`, checks, analysis};
 }
 

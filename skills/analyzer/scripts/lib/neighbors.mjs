@@ -106,6 +106,14 @@ function readMarketerExperimentDir(project, directory) {
   const review = fs.existsSync(reviewPath) ? safeDocument(reviewPath) : null;
   const fingerprint = marketerFingerprint(document.body);
   const lockedFingerprint = review?.data?.criteria_fingerprint ?? null;
+  // Marketer7's governed post-execution threshold corrections.
+  const overrides = [];
+  for (const entry of listDir(path.join(directory, 'criteria-overrides'))) {
+    if (!entry.isFile() || !/^CO-\d+.*\.md$/.test(entry.name)) continue;
+    const override = safeDocument(path.join(directory, 'criteria-overrides', entry.name));
+    if (override.error) continue;
+    overrides.push({id: override.data.id, status: override.data.status ?? null, replacement_fingerprint: override.data.replacement_criteria_fingerprint ?? null, prior_fingerprint: override.data.prior_criteria_fingerprint ?? null, decision_id: override.data.decision_id ?? null});
+  }
   return {
     id: document.data.id,
     mission_id: document.data.mission_id ?? null,
@@ -130,8 +138,21 @@ function readMarketerExperimentDir(project, directory) {
     fingerprint,
     locked_fingerprint: lockedFingerprint,
     definition_matches_review: lockedFingerprint ? lockedFingerprint === fingerprint : null,
+    overrides,
+    criteria: criteriaBasis(fingerprint, lockedFingerprint, overrides),
     path: rel(project, filePath),
   };
+}
+
+// Which locked criteria govern the current definition? Thresholds may be used
+// only when the current definition is the review lock, or an approved
+// Marketer7 criteria override whose replacement fingerprint matches it.
+export function criteriaBasis(fingerprint, lockedFingerprint, overrides) {
+  if (!lockedFingerprint) return {authorized: false, basis: 'criteria_not_locked', detail: 'no review-time criteria lock exists'};
+  if (fingerprint === lockedFingerprint) return {authorized: true, basis: 'review_lock', detail: 'current definition matches the review-time lock'};
+  const override = overrides.find((entry) => entry.status === 'approved' && entry.replacement_fingerprint === fingerprint && entry.prior_fingerprint === lockedFingerprint);
+  if (override) return {authorized: true, basis: `override ${override.id}`, detail: `approved Marketer7 criteria override ${override.id}${override.decision_id ? ` (decision ${override.decision_id})` : ''}`};
+  return {authorized: false, basis: 'criteria_changed', detail: 'the definition differs from its review lock and no approved override covers it'};
 }
 
 export function findMarketerExperiment(project, experimentId) {

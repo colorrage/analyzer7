@@ -39,6 +39,7 @@ export function writeExternalReference(project, evidenceId, {now, experimentId =
     evidence_grade: evidence.evidence_grade ?? 'unknown',
     threshold_result: evidence.threshold_result ?? 'not_evaluated',
     measured_fingerprint: evidence.experiment_fingerprint ?? 'unknown',
+    criteria_basis: evidence.criteria_basis ?? 'unknown',
   };
   const body = [
     `# External evidence reference — ${experiment}`,
@@ -57,7 +58,7 @@ export function writeExternalReference(project, evidenceId, {now, experimentId =
     '',
     `- Data quality: ${evidence.data_quality}; evidence strength: ${evidence.evidence_strength}; causal confidence: ${evidence.causal_confidence}.`,
     `- Marketer7 evidence grade for this metric: ${evidence.evidence_grade ?? 'unknown'}.`,
-    `- Threshold comparison: ${evidence.threshold_result ?? 'not evaluated'}.`,
+    `- Threshold comparison: ${evidence.threshold_result ?? 'not evaluated'} (criteria basis: ${evidence.criteria_basis ?? 'unknown'}; measured definition fingerprint ${evidence.experiment_fingerprint ?? 'unknown'}).`,
     `- Confounders recorded: ${evidence.confounder_count ?? 0} (see the canonical artifact).`,
     '',
     'This file does not copy the provider\'s measurement as locally observed Marketer7 evidence and does not establish causality. The experiment verdict and the next decision remain with Marketer7.',

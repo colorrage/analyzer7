@@ -35,7 +35,7 @@ Markdown records use flat `key: value` YAML frontmatter with `schema_version: 1`
 
 ## Evidence record (EV)
 
-Frontmatter: `id, title, status, kind (comparison | experiment_evaluation), recorded_at, metric, metric_version, unit, source_ids, period_before_start/end, period_after_start/end, before_value, after_value, basis (total | per_day), delta_abs, delta_pct, data_quality, evidence_strength, causal_confidence, evidence_grade (Marketer7 A–E), threshold_result, mission_id, experiment_id, experiment_fingerprint, change_ids, confounding_change_ids, asset_ids, publication_ids, deployment_ids, baseline_ids, context_refs, confounder_count, artifacts, supersedes`.
+Frontmatter: `id, title, status, kind (comparison | experiment_evaluation), recorded_at, metric, metric_version, unit, source_ids, period_before_start/end, period_after_start/end, before_value, after_value, basis (total | per_day), delta_abs, delta_pct, data_quality, evidence_strength, causal_confidence, evidence_grade (Marketer7 A–E), threshold_result, criteria_basis (review_lock | override CO-NNN | criteria_changed | criteria_not_locked), mission_id, experiment_id, experiment_fingerprint, change_ids, confounding_change_ids, asset_ids, publication_ids, deployment_ids, baseline_ids, context_refs, confounder_count, artifacts, supersedes`.
 
 Body sections, in order: Observation, Measurement, Experiment threshold check (experiments only), Data quality, Evidence strength, Causal confidence, Confounders, Possible explanations, Uncertainty, Interpretation, Provenance, External context.
 

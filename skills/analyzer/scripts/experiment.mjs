@@ -131,10 +131,14 @@ function evaluate(argv) {
   const before = {start: planData.before_start, end: planData.before_end};
   const warnings = [];
   const extraIssues = [];
+  // Goalpost protection: thresholds are compared only under criteria that
+  // Marketer7 locked (review lock or approved override). Anything else keeps
+  // the measured values but withholds the threshold result.
+  const criteria = experiment.criteria;
   if (planData.marketer_fingerprint !== experiment.fingerprint) {
-    warnings.push(`the Marketer7 definition changed since the plan (planned ${planData.marketer_fingerprint}, now ${experiment.fingerprint}); thresholds are read from the current definition — Marketer7 governs whether that change is legitimate`);
+    warnings.push(`the Marketer7 definition changed since the plan (planned ${planData.marketer_fingerprint}, now ${experiment.fingerprint}); ${criteria.authorized ? `the change is governed (${criteria.detail})` : 'the change is not governed by a review lock or an approved override'}`);
   }
-  if (experiment.definition_matches_review === false) warnings.push('the current Marketer7 definition does not match its review-time lock');
+  if (!criteria.authorized) warnings.push(`threshold result withheld (${criteria.basis}): ${criteria.detail}; Marketer7 must re-lock the criteria or approve an override`);
   if (parseTimestamp(now) <= Date.parse(`${window.end}T23:59:59Z`)) {
     if (!args.allowOpenWindow) {
       printJson({status: 'window_open', experiment_id: experiment.id, window, message: `the measurement window closes ${window.end}; no evidence is produced before then (pass --allow-open-window for an explicitly partial read)`});
@@ -160,7 +164,8 @@ function evaluate(argv) {
     extraIssues,
     baselineCheck: baseline ? {id: baseline.data.id, value: baseline.data.value} : null,
   });
-  const threshold = thresholdResult(experiment, analysis.comparison?.after?.value ?? null, analysis.data_quality.level);
+  const measured = thresholdResult(experiment, analysis.comparison?.after?.value ?? null, analysis.data_quality.level);
+  const threshold = criteria.authorized ? {...measured, criteria_basis: criteria.basis} : {observed: measured.observed, result: criteria.basis, criteria_basis: criteria.basis};
   const result = {
     status: 'evaluated',
     experiment_id: experiment.id,

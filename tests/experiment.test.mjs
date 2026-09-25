@@ -110,10 +110,34 @@ test('experiment: a changed Marketer7 definition is surfaced, not silently accep
   const experimentPath = path.join(project, '.marketer', 'experiments', 'EX-014-seo-title-intent', 'experiment.md');
   fs.writeFileSync(experimentPath, fs.readFileSync(experimentPath, 'utf8').replace('| Success threshold | >= 1.8 |', '| Success threshold | >= 2.5 |'));
   run('ingest.mjs', ['--project', project, '--source', 'gsc', '--input', path.join(project, 'inputs', 'gsc-daily-pages-2026-08-01_2026-09-25.csv'), '--now', T.ingest]);
-  const result = run('experiment.mjs', ['evaluate', '--project', project, '--experiment', 'EX-014', '--now', T.evaluate]);
+  const result = run('experiment.mjs', ['evaluate', '--project', project, '--experiment', 'EX-014', '--record', '--now', T.evaluate]);
   assert.ok(result.warnings.some((warning) => /definition changed since the plan/.test(warning)));
-  assert.ok(result.warnings.some((warning) => /does not match its review-time lock/.test(warning)));
-  assert.equal(result.threshold.result, 'between_thresholds', 'the current (changed) thresholds are read, and the change is flagged');
+  assert.ok(result.warnings.some((warning) => /threshold result withheld \(criteria_changed\)/.test(warning)));
+  assert.equal(result.threshold.result, 'criteria_changed', 'a retroactive threshold change never decides the result');
+  assert.equal(result.threshold.observed, 2.3963, 'the measured value is still reported');
+  const evidence = readFrontmatter(path.join(project, result.evidence.path));
+  assert.equal(evidence.threshold_result, 'criteria_changed');
+  assert.equal(evidence.criteria_basis, 'criteria_changed');
+  assert.equal(readFrontmatter(path.join(project, result.export)).criteria_basis, 'criteria_changed');
+  assert.ok(validateState(project).ok, validateState(project).output);
+});
+
+test('experiment: a threshold change governed by an approved Marketer7 override is honored', async () => {
+  const {marketerFingerprint} = await import('../skills/analyzer/scripts/lib/neighbors.mjs');
+  const project = setupEcosystem(copyFixture());
+  run('experiment.mjs', ['plan', '--project', project, '--experiment', 'EX-014', '--record-baseline', '--now', T.planning]);
+  const directory = path.join(project, '.marketer', 'experiments', 'EX-014-seo-title-intent');
+  const locked = readFrontmatter(path.join(directory, 'review.md')).criteria_fingerprint;
+  const experimentPath = path.join(directory, 'experiment.md');
+  fs.writeFileSync(experimentPath, fs.readFileSync(experimentPath, 'utf8').replace('| Success threshold | >= 1.8 |', '| Success threshold | >= 2.5 |'));
+  const text = fs.readFileSync(experimentPath, 'utf8');
+  const replacement = marketerFingerprint(text.slice(text.indexOf('\n---\n', 4) + 5));
+  fs.mkdirSync(path.join(directory, 'criteria-overrides'), {recursive: true});
+  fs.writeFileSync(path.join(directory, 'criteria-overrides', 'CO-001.md'), `---\nschema_version: 1\nid: CO-001\nexperiment_id: EX-014\nstatus: approved\nprior_criteria_fingerprint: ${locked}\nreplacement_criteria_fingerprint: ${replacement}\ndecision_id: D-003\n---\n\n# Criteria override — CO-001\n`);
+  run('ingest.mjs', ['--project', project, '--source', 'gsc', '--input', path.join(project, 'inputs', 'gsc-daily-pages-2026-08-01_2026-09-25.csv'), '--now', T.ingest]);
+  const result = run('experiment.mjs', ['evaluate', '--project', project, '--experiment', 'EX-014', '--now', T.evaluate]);
+  assert.equal(result.threshold.criteria_basis, 'override CO-001');
+  assert.equal(result.threshold.result, 'between_thresholds', 'the governed replacement threshold (>= 2.5) is applied');
 });
 
 test('experiment: Analyzer7 does not invent experiments or metric mappings', () => {

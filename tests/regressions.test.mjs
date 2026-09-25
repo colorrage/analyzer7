@@ -185,3 +185,43 @@ test('scripts work when invoked through an installed symlink', async () => {
   assert.equal(result.status, 0);
   assert.match(result.stdout, /PASS — Analyzer7 state validation/, 'validation must actually run, not silently exit 0');
 });
+
+test('missing GSC clicks/impressions stay unknown, not zero', () => {
+  const directory = tempDir();
+  run('init.mjs', ['--project', directory, '--seed', 'seo', '--now', NOW]);
+  run('record.mjs', ['source', '--project', directory, '--id', 'gsc', '--type', 'search', '--adapter', 'gsc', '--auth-method', 'mcp', '--now', NOW]);
+  const file = writeCsv(path.join(directory, 'gsc.csv'), 'date,clicks,impressions', eightWeeks.map((date, index) => `${date},${index === 40 ? '' : 10},${index === 41 ? 'n/a' : 200}`));
+  run('ingest.mjs', ['--project', directory, '--source', 'gsc', '--input', file, '--now', NOW]);
+  const snapshot = JSON.parse(fs.readFileSync(path.join(directory, '.analyzer', 'observations', 'gsc', fs.readdirSync(path.join(directory, '.analyzer', 'observations', 'gsc'))[0]), 'utf8'));
+  assert.equal(snapshot.rows[40].clicks, null);
+  assert.equal(snapshot.rows[41].impressions, null);
+  const clicks = compare(directory, 'organic_clicks');
+  assert.equal(clicks.analysis.comparison.after.value, 270, '27 known of 28 days × 10; the blank day is skipped, not counted as 0');
+  assert.ok(clicks.analysis.data_quality.issues.some((entry) => entry.code === 'missing_values'));
+  const ctr = compare(directory, 'organic_ctr');
+  assert.equal(ctr.analysis.comparison.after.value, 5, 'rows missing either side of the ratio are excluded from both');
+});
+
+function monitorFixture(rows, metric, monitor) {
+  const directory = project([metric]);
+  ingest(directory, 'series', 'date,metric,value', rows);
+  fs.writeFileSync(path.join(directory, '.analyzer', 'monitors.json'), JSON.stringify({schema_version: 1, monitors: [monitor]}));
+  return run('analyze.mjs', ['monitor', '--project', directory, '--now', NOW]).results[0];
+}
+
+test('monitor: an unknown significance fails the guard', () => {
+  const dates = days('2026-09-20', 6);
+  const result = monitorFixture(dates.map((date, index) => `${date},score,${index < 3 ? 10 : 20}`), {id: 'score', kind: 'mean', aggregation: 'mean', series: 'score', min_sample: 1}, {id: 'MON-score', metric: 'score', window_days: 3, relative_threshold_pct: 25, absolute_threshold: 1, min_sample: 1});
+  assert.equal(result.outcome, 'quiet');
+  assert.equal(result.checks.significance, false);
+  assert.match(result.reason, /no variance estimate/);
+});
+
+test('monitor: count collapse from a reliable baseline alerts; small-denominator ratios do not', () => {
+  const dates = days('2026-09-17', 14);
+  const collapse = monitorFixture(dates.map((date, index) => `${date},signups,${index < 7 ? 20 : 1}`), {id: 'signups', kind: 'count', aggregation: 'sum', series: 'signups', min_sample: 1}, {id: 'MON-signups', metric: 'signups', window_days: 7, relative_threshold_pct: 25, absolute_threshold: 10, min_sample: 50, direction: 'decrease'});
+  assert.equal(collapse.outcome, 'alert', '140 → 7 counts from a 140-count baseline is a real signal');
+  const ratio = monitorFixture(dates.flatMap((date, index) => [`${date},visits,${index < 7 ? 100 : 1}`, `${date},signups,${index < 7 ? 10 : (index % 2)}`]), {id: 'conversion', kind: 'ratio', unit: 'percent', aggregation: 'ratio_of_sums', numerator: 'signups', denominator: 'visits', scale: 100, min_sample: 1}, {id: 'MON-conv', metric: 'conversion', window_days: 7, relative_threshold_pct: 25, absolute_threshold: 1, min_sample: 50});
+  assert.equal(ratio.checks.sample, false, 'a 7-visit current window cannot support a conversion-rate alert');
+  assert.equal(ratio.outcome, 'quiet');
+});

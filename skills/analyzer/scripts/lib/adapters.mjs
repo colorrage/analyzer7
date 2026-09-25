@@ -88,8 +88,10 @@ function normalizeGsc(records, {dimensions: declared}) {
       Object.assign(record, lower);
     }
     if (row.date) row.date = isoDate(row.date);
-    row.clicks = number(record.clicks) ?? 0;
-    row.impressions = number(record.impressions) ?? 0;
+    // A missing or invalid cell stays null (unknown), never 0: aggregation
+    // skips and counts it, and data quality reports it.
+    row.clicks = number(record.clicks);
+    row.impressions = number(record.impressions);
     row.ctr = ctrFraction(record.ctr);
     row.position = number(record.position);
     rows.push(row);

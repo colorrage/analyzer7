@@ -230,7 +230,7 @@ export function renderEvidenceBody(analysis, {title, observation, experiment = n
   if (analysis.seo_context) lines.push(`- SEO context (same scope): impressions ${analysis.seo_context.before.impressions} → ${analysis.seo_context.after.impressions}, avg position ${analysis.seo_context.before.avg_position} → ${analysis.seo_context.after.avg_position}`);
   lines.push('');
   if (experiment) {
-    lines.push('## Experiment threshold check', '', `- Experiment: ${experiment.id} (Marketer7, ${experiment.path}), status at measurement: ${experiment.status}`, `- Definition fingerprint measured: \`${experiment.fingerprint}\`${experiment.definition_matches_review === false ? ' — DOES NOT match the review-time lock' : experiment.definition_matches_review ? ' (matches the review-time lock)' : ''}`, `- Primary metric: ${experiment.definition.primary_metric}; success ${experiment.definition.success_threshold}; failure ${experiment.definition.failure_threshold}`, `- Observed primary value: ${fmt(threshold?.observed ?? null, unit)}`, `- Threshold result: **${threshold?.result ?? 'insufficient_data'}**`, '', 'Analyzer7 reports the threshold comparison only. The experiment verdict and the next decision (continue, stop, iterate, scale) belong to Marketer7.', '');
+    lines.push('## Experiment threshold check', '', `- Experiment: ${experiment.id} (Marketer7, ${experiment.path}), status at measurement: ${experiment.status}`, `- Definition fingerprint measured: \`${experiment.fingerprint}\`${experiment.definition_matches_review === false ? ' — DOES NOT match the review-time lock' : experiment.definition_matches_review ? ' (matches the review-time lock)' : ''}`, `- Primary metric: ${experiment.definition.primary_metric}; success ${experiment.definition.success_threshold}; failure ${experiment.definition.failure_threshold}`, `- Observed primary value: ${fmt(threshold?.observed ?? null, unit)}`, `- Criteria basis: ${experiment.criteria ? `${experiment.criteria.basis} — ${experiment.criteria.detail}` : 'unknown'}`, `- Threshold result: **${threshold?.result ?? 'insufficient_data'}**${experiment.criteria && !experiment.criteria.authorized ? ' (withheld: the thresholds in force are not the locked ones)' : ''}`, '', 'Analyzer7 reports the threshold comparison only. The experiment verdict and the next decision (continue, stop, iterate, scale) belong to Marketer7.', '');
   }
   lines.push(`## Data quality: ${upper(analysis.data_quality.level)}`, '');
   if (analysis.data_quality.issues.length === 0) lines.push('- No issues detected by the automated checks.');
@@ -298,6 +298,7 @@ export function writeEvidence(root, analysis, {title, observation, kind = 'compa
     mission_id: missionId ?? experiment?.mission_id ?? null,
     experiment_id: experiment?.id ?? null,
     experiment_fingerprint: experiment?.fingerprint ?? null,
+    criteria_basis: threshold?.criteria_basis ?? null,
     change_ids: analysis.changes.linked,
     confounding_change_ids: analysis.changes.overlapping,
     asset_ids: assetIds,

@@ -96,6 +96,24 @@ export function aggregate(rows, mapping, kind) {
       return {...base(), value: present(seriesField).length ? value : null, sample: value};
     }
     case 'ratio_of_sums': {
+      // A ratio needs both parts of the same row: a row missing either side is
+      // skipped for both (counted once as missing), so the ratio never mixes
+      // a numerator and a denominator from different rows.
+      if (kind !== 'timeseries') {
+        let numerator = 0;
+        let denominator = 0;
+        for (const row of relevant) {
+          const top = valueOf(row, mapping.numerator, kind);
+          const bottom = valueOf(row, mapping.denominator, kind);
+          if (top === null || bottom === null) {
+            missing += 1;
+            continue;
+          }
+          numerator += top;
+          denominator += bottom;
+        }
+        return {...base(), numerator, denominator, value: denominator > 0 ? (numerator / denominator) * mapping.scale : null, sample: denominator};
+      }
       const numerator = total(mapping.numerator);
       const denominator = total(mapping.denominator);
       return {...base(), numerator, denominator, value: denominator > 0 ? (numerator / denominator) * mapping.scale : null, sample: denominator};

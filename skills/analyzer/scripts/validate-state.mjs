@@ -19,7 +19,7 @@ import {AGGREGATIONS} from './lib/stats.mjs';
 const QUALITY = ['high', 'medium', 'low', 'insufficient'];
 const STRENGTH = ['insufficient', 'low', 'medium', 'high'];
 const CAUSAL = ['none', 'low', 'medium', 'high'];
-const THRESHOLD_RESULTS = new Set(['success_threshold_met', 'failure_threshold_met', 'between_thresholds', 'insufficient_data', 'thresholds_unparseable', null]);
+const THRESHOLD_RESULTS = new Set(['success_threshold_met', 'failure_threshold_met', 'between_thresholds', 'insufficient_data', 'thresholds_unparseable', 'criteria_changed', 'criteria_not_locked', null]);
 const AUTH_KEYS = new Set(['method', 'reference', 'env_vars']);
 
 function walk(dir) {
@@ -162,6 +162,7 @@ export function validateAnalyzerState(root) {
     if (data.supersedes) check(ids.evidence.has(data.supersedes), `${file}: supersedes ${data.supersedes}, which does not exist`);
     for (const artifact of data.artifacts ?? []) check(exists(artifact), `${file}: artifact ${artifact} does not exist`);
     if (data.experiment_id) check(/^EX-\d{3,}$/.test(data.experiment_id), `${file}: experiment_id must be EX-NNN`);
+    if (['success_threshold_met', 'failure_threshold_met', 'between_thresholds'].includes(data.threshold_result) && data.criteria_basis !== undefined) check(data.criteria_basis === 'review_lock' || /^override CO-\d+/.test(String(data.criteria_basis)), `${file}: a threshold result needs locked criteria (criteria_basis ${data.criteria_basis})`);
   }
   for (const {file, data} of records.change) {
     check(CHANGE_ORIGINS.has(data.origin), `${file}: unknown origin ${data.origin}`);

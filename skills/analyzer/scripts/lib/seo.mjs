@@ -18,16 +18,23 @@ function groupBy(rows, keyFn) {
 }
 
 export function totals(rows) {
-  const clicks = rows.reduce((total, row) => total + (row.clicks ?? 0), 0);
-  const impressions = rows.reduce((total, row) => total + (row.impressions ?? 0), 0);
+  // Missing cells are skipped (they are unknown, not zero); `missing` counts them.
+  const known = (field) => rows.filter((row) => row[field] !== null && row[field] !== undefined && Number.isFinite(Number(row[field])));
+  const clicks = known('clicks').reduce((total, row) => total + Number(row.clicks), 0);
+  const impressions = known('impressions').reduce((total, row) => total + Number(row.impressions), 0);
   // Rows without a position are excluded from the average, not counted as 0.
   const positioned = rows.filter((row) => row.position !== null && row.position !== undefined && Number.isFinite(Number(row.position)));
   const positionWeight = positioned.reduce((total, row) => total + (row.impressions ?? 0), 0);
   const weighted = positioned.reduce((total, row) => total + Number(row.position) * (row.impressions ?? 0), 0);
+  // CTR only over rows where both counts are known.
+  const paired = rows.filter((row) => known('clicks').includes(row) && known('impressions').includes(row));
+  const pairedClicks = paired.reduce((total, row) => total + Number(row.clicks), 0);
+  const pairedImpressions = paired.reduce((total, row) => total + Number(row.impressions), 0);
   return {
     clicks,
     impressions,
-    ctr_pct: impressions > 0 ? round((clicks / impressions) * 100, 3) : null,
+    missing: rows.length * 2 - known('clicks').length - known('impressions').length,
+    ctr_pct: pairedImpressions > 0 ? round((pairedClicks / pairedImpressions) * 100, 3) : null,
     avg_position: positionWeight > 0 ? round(weighted / positionWeight, 2) : null,
   };
 }
