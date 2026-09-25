@@ -144,24 +144,37 @@ export function confounders({classified, before, after, context = {}}) {
   }
   if (context.positionShift !== undefined && context.positionShift !== null) {
     const shift = Math.abs(context.positionShift);
-    if (shift >= 0.5) list.push({severity: shift >= 2 ? 'major' : 'minor', code: 'position_shift', message: `average position moved ${context.positionFrom} → ${context.positionTo} in the same scope; CTR depends on position`});
+    if (shift >= 0.5) list.push({severity: shift >= 2 ? 'major' : 'minor', code: 'position_shift', message: `average position moved ${context.positionFrom} → ${context.positionTo} in the same scope${context.positionNet ? ` (${context.positionShift > 0 ? '+' : ''}${context.positionShift.toFixed(2)} net of the control group)` : ''}; CTR depends on position`});
   }
   if (context.demandShiftPct !== undefined && context.demandShiftPct !== null) {
     const shift = Math.abs(context.demandShiftPct);
-    if (shift >= 10) list.push({severity: shift >= 50 ? 'major' : 'minor', code: 'demand_shift', message: `impressions (search demand/visibility) changed ${context.demandShiftPct > 0 ? '+' : ''}${context.demandShiftPct.toFixed(1)}% between periods`});
+    if (shift >= 10) list.push({severity: shift >= 50 ? 'major' : 'minor', code: 'demand_shift', message: `impressions (search demand/visibility) changed ${context.demandShiftPct > 0 ? '+' : ''}${context.demandShiftPct.toFixed(1)}% between periods${context.demandNet ? ' net of the control group' : ''}`});
   }
   if (before && after) {
     const beforeDays = Math.round((Date.parse(before.end) - Date.parse(before.start)) / 86400000) + 1;
     const afterDays = Math.round((Date.parse(after.end) - Date.parse(after.start)) / 86400000) + 1;
-    if (beforeDays !== afterDays || beforeDays % 7 !== 0) list.push({severity: 'minor', code: 'weekday_mix', message: `periods of ${beforeDays} and ${afterDays} days do not share the same weekday mix`});
+    // A control group shares the weekday mix, so it cancels out.
+    if (beforeDays !== afterDays || beforeDays % 7 !== 0) list.push({severity: context.controlled ? 'info' : 'minor', code: 'weekday_mix', message: `periods of ${beforeDays} and ${afterDays} days do not share the same weekday mix${context.controlled ? ' (shared by the control group, so it cancels)' : ''}`});
   }
+  const seasonal = context.seasonal;
+  if (seasonal?.checked && seasonal.last_year_change_pct !== null && seasonal.observed_change_pct !== null) {
+    const lastYearPct = seasonal.last_year_change_pct;
+    const observed = seasonal.observed_change_pct;
+    const explains = Math.sign(lastYearPct) === Math.sign(observed) && Math.abs(lastYearPct) >= 0.5 * Math.abs(observed);
+    const message = `the same windows 52 weeks earlier moved ${lastYearPct > 0 ? '+' : ''}${lastYearPct}% (${seasonal.periods.before.start} → ${seasonal.periods.after.end}) vs ${observed > 0 ? '+' : ''}${observed}% now`;
+    if (context.controlled) list.push({severity: 'info', code: 'seasonal_pattern', message: `${message}; shared seasonality is absorbed by the control group`});
+    else if (explains) list.push({severity: 'major', code: 'seasonal_pattern', message: `${message} — a recurring seasonal pattern can explain much of the change`});
+    else if (Math.abs(lastYearPct) >= 10) list.push({severity: 'minor', code: 'seasonal_pattern', message});
+    else list.push({severity: 'info', code: 'seasonality_checked', message: `${message}; no comparable seasonal swing`});
+  }
+  if (context.parallelTrends && !context.parallelTrends.passed) list.push({severity: 'major', code: 'parallel_trends_violated', message: `treated and control pages were already diverging before the change (pre-trend statistic ${context.parallelTrends.statistic}); the control does not fully isolate the effect`});
   for (const ref of context.externalContext ?? []) list.push({severity: 'minor', code: 'external_context', ref, message: `external context recorded: ${ref}`});
   for (const note of context.extra ?? []) list.push(note);
   return list;
 }
 
 // design: randomized_controlled | controlled | before_after | observational
-export function causalConfidence({design = 'before_after', classified, confounderList, evidence, before, after}) {
+export function causalConfidence({design = 'before_after', designCeiling = null, classified, confounderList, evidence, before, after}) {
   const reasons = [];
   if (classified.linked.length === 0) return {level: 'none', reasons: ['no registered change or experiment is linked; this is an observation, not an attribution']};
   if (evidence === 'insufficient') return {level: 'none', reasons: ['evidence is insufficient']};
@@ -171,8 +184,10 @@ export function causalConfidence({design = 'before_after', classified, confounde
   if (lateChange) return {level: 'none', reasons: ['linked change happened after the measurement window']};
   const earlyChange = before && placed.every((change) => isoDate(change.data.timestamp) < before.start);
   if (earlyChange) return {level: 'none', reasons: ['linked change predates both compared periods, so the comparison cannot isolate its effect']};
-  let level = {randomized_controlled: 'high', controlled: 'medium', before_after: 'medium'}[design] ?? 'low';
-  reasons.push(`${design.replace('before_after', 'before/after').replace(/_/g, ' ')} design sets a ceiling of ${level}`);
+  // Difference-in-differences earns a high ceiling only with parallel
+  // pre-trends and a clear net effect (the caller passes designCeiling).
+  let level = designCeiling ?? {randomized_controlled: 'high', difference_in_differences: 'medium', controlled: 'medium', before_after: 'medium'}[design] ?? 'low';
+  reasons.push(`${design.replace('before_after', 'before/after').replace(/_/g, ' ')} design sets a ceiling of ${level}${design === 'difference_in_differences' ? (level === 'high' ? ' (parallel pre-trends hold and the net effect is clear)' : ' (pre-trends or the net effect are not strong enough for high)') : ''}`);
   if (evidence === 'low') {
     level = capAt(level, 'low', CAUSAL);
     reasons.push('low evidence strength caps causal confidence at low');

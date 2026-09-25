@@ -110,7 +110,8 @@ Each axis caps the next. The scripts compute the ceiling and record every reason
 
 - **Data quality** detects missing days, duplicates, sudden zeros, stale or unavailable sources, incomplete periods, timezone and schema mismatches, cross-source discrepancies, tracking changes in the window, headline totals derived from query/page rows, and restated baselines.
 - **Evidence strength** uses Welch's t over daily values (or over-dispersion-adjusted proportion/Poisson tests), window-length caps, and a persistence check across both halves of the window.
-- **Causal confidence** depends on the design (a before/after comparison is capped at medium). A registered same-page change or a tracking change in the periods is a major confounder, and position or demand shifts are minor ones. With no linked change the result is `none`: an observation, not an attribution.
+- **Control groups and seasonality.** Page-scoped measurements automatically use a difference-in-differences control of untouched pages in the same markets, with a parallel-pre-trend check. When last year's data exists, a year-over-year check shows whether the same weeks moved the same way last year.
+- **Causal confidence** depends on the design: before/after is capped at medium; difference-in-differences can reach high only with parallel pre-trends and a clear net effect. A registered same-page change or a tracking change in the periods is a major confounder, and position or demand shifts are minor ones. With no linked change the result is `none`: an observation, not an attribution.
 
 Example (the fixture experiment; exact values by construction):
 

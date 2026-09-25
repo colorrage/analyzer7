@@ -6,13 +6,9 @@ Deferred deliberately. Each item says why.
 
 Status: deferred. Analyzer7 v1 normalizes exports produced by the provider's own tool (GSC MCP server, GA4/Stripe exports, SQL, rank-tracker CSV) instead of embedding API clients. That keeps credentials out of Analyzer7 and the core free of SDKs, and it keeps the tests deterministic. A later adapter may call an API directly, but only through an authorized, credential-free-in-state mechanism, with the same snapshot contract.
 
-## Controlled designs
+## Randomized designs
 
-Status: partial. The rubric accepts `controlled` and `randomized_controlled` designs, but v1 has no split-traffic or holdout readers (for example A/B assignment exports). Until then most SEO and content changes are before/after comparisons, capped at medium causal confidence.
-
-## Seasonality modelling
-
-Status: deferred. v1 controls weekday mix (weekday-aligned windows) and flags uncontrolled seasonality in every record. Year-over-year baselines and demand-adjusted comparisons need a year of history per property, which a new installation does not have.
+Status: partial. Difference-in-differences against untouched control pages and year-over-year seasonal checks are shipped. Randomized or holdout readers (for example A/B assignment exports) are not, so `randomized_controlled` is accepted as a declared design but not verified.
 
 ## Hyper7 deploy timestamps
 

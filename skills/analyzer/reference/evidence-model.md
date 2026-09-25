@@ -33,7 +33,20 @@ When the level is `insufficient`, no delta is reported and the conclusion is **I
 ## Causal confidence
 
 1. `none` when no registered change or experiment is linked (the record is an observation, not an attribution), evidence is insufficient, the linked change has unknown timing, it happened after the window, or it predates both compared periods.
-2. Design ceiling: `randomized_controlled` → high, `controlled` → medium, `before_after` → medium, `observational` → low.
+2. Design ceiling: `randomized_controlled` → high, `difference_in_differences` → high only when parallel pre-trends hold and the net effect is clear (|statistic| ≥ 3), otherwise medium; `controlled` → medium; `before_after` → medium; `observational` → low.
+
+### Control groups (difference-in-differences)
+
+Page-scoped Search Console measurements use a control group automatically (`--control none` disables it; `--control-page /a,/b` sets it explicitly). The control is made of untouched pages in the treated pages' markets: the same configured segment URL prefix, or else the same language path segment. Any page touched by a registered change in the windows is excluded. At least 3 control pages with data in both windows are required; otherwise the analysis falls back to before/after and says so as an `info` note.
+
+- The net effect is computed on daily series. Counts are indexed to each group's own before-period mean, and ratios and means use levels. It is tested with Welch's t on the difference series.
+- Parallel pre-trends: the difference series must not already drift within the before window (|t| < 2). A violation is a major confounder.
+- Shared shocks cancel. Weekday mix and seasonality become `info`, and position and demand shifts are measured net of the control.
+- Experiment plans fix the control pages at planning time, before any outcome exists.
+
+### Year-over-year
+
+When data exists for the same windows 52 weeks earlier (weekday-aligned, 364 days), every comparison checks whether that year moved the same way. A same-direction swing of at least half the observed change is a major `seasonal_pattern` confounder for before/after, and `info` under a control group. `analyze.mjs compare --yoy` compares the after window directly with the same weeks last year.
 3. Evidence caps: low evidence → at most low; medium evidence → at most medium.
 4. Confounders lower the level: each **major** confounder by one step, and three or more **minor** confounders together by one step. `info` entries are listed but never lower it. The floor is `low` while a linked change with consistent timing exists.
 

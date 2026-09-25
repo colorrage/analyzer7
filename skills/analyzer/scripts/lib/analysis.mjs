@@ -3,11 +3,12 @@
 // comparisons, experiment evaluation, and baselines, so every path applies the
 // same rules.
 
-import {UsageError, createRecord, daysInclusive, isoDate, listRecords, nowIso, parseTimestamp, round} from './core.mjs';
+import {UsageError, createRecord, daysInclusive, isoDate, listRecords, normalizePage, nowIso, parseTimestamp, round} from './core.mjs';
+import {differenceInDifferences, lastYear, scopedRows, selectControlPages} from './control.mjs';
 import {ADAPTERS} from './adapters.mjs';
 import {causalConfidence, classifyChanges, confounders, evidenceStrength} from './confidence.mjs';
 import {checkBoundaryZero, checkComparability, checkPeriodRows, checkSample, checkSuddenZero, checkTimezone, checkTrackingChanges, discrepancy, healthIssues, issue, levelFromIssues, sourceHealth} from './quality.mjs';
-import {getMetric, getSource, loadProject, selectRows} from './state.mjs';
+import {getMetric, getSource, loadProject, loadSeoConfig, selectRows} from './state.mjs';
 import {aggregate, comparePeriods, dailyValues, filterRows, meetsThreshold, parseThreshold, resolveMapping} from './stats.mjs';
 import {totals} from './seo.mjs';
 
@@ -78,7 +79,7 @@ function scopePages(scope) {
   return Array.isArray(scope.page) ? scope.page : [scope.page];
 }
 
-export function analyzeComparison(root, project, {metricId, sourceId = null, before, after, scope = {}, linkedChangeIds = [], experimentId = null, design = 'before_after', now, contextRefs = [], analysisKind = 'comparison', extraIssues = [], baselineCheck = null}) {
+export function analyzeComparison(root, project, {metricId, sourceId = null, before, after, scope = {}, linkedChangeIds = [], experimentId = null, design = 'before_after', now, contextRefs = [], analysisKind = 'comparison', extraIssues = [], baselineCheck = null, control = 'auto', seasonality = true}) {
   const metric = resolveMetric(root, metricId);
   const projectData = loadProject(root);
   const canonical = metric.canonical_source;
@@ -138,29 +139,44 @@ export function analyzeComparison(root, project, {metricId, sourceId = null, bef
     comparison.delta_abs = null;
     comparison.delta_pct = null;
   }
-  const strength = evidenceStrength({dataQuality, comparison, minSample: metric.min_sample});
+  // Control group (difference-in-differences) for page-scoped measurements.
+  const controlResult = kind && comparison ? measureControl(root, {control, scope, metric, sourceId: primarySource, kind, before, after, changes, projectData, now, beforeMeasure, afterMeasure}) : null;
+  if (controlResult && !controlResult.usable && controlResult.requested) issues.push(issue('control_unusable', 'info', `control group not used: ${controlResult.reason}; the analysis is a plain before/after comparison`));
+  const controlled = Boolean(controlResult?.usable);
+  const effectiveDesign = controlled ? 'difference_in_differences' : design;
+  const strengthInput = controlled ? {...comparison, significance: {method: controlResult.method, statistic: controlResult.statistic, note: 'difference-in-differences on daily series'}} : comparison;
+  const strength = evidenceStrength({dataQuality, comparison: strengthInput, minSample: metric.min_sample});
 
-  // SEO context for CTR-like metrics: position and demand shifts in scope.
+  // SEO context for CTR-like metrics: position and demand shifts in scope,
+  // net of the control group when one is used.
   const seoContext = {};
   if (kind === 'gsc_rows' && beforeMeasure.rows.length && afterMeasure.rows.length) {
     const beforeTotals = totals(beforeMeasure.rows);
     const afterTotals = totals(afterMeasure.rows);
+    const controlTotals = controlled ? {before: totals(controlResult.rows.before), after: totals(controlResult.rows.after)} : null;
     if (metric.id !== 'avg_position' && beforeTotals.avg_position !== null && afterTotals.avg_position !== null) {
-      seoContext.positionShift = afterTotals.avg_position - beforeTotals.avg_position;
+      const treatedShift = afterTotals.avg_position - beforeTotals.avg_position;
+      const controlShift = controlTotals && controlTotals.before.avg_position !== null && controlTotals.after.avg_position !== null ? controlTotals.after.avg_position - controlTotals.before.avg_position : null;
+      seoContext.positionShift = controlShift === null ? treatedShift : treatedShift - controlShift;
       seoContext.positionFrom = beforeTotals.avg_position;
       seoContext.positionTo = afterTotals.avg_position;
+      seoContext.positionNet = controlShift !== null;
     }
     if (!['organic_impressions'].includes(metric.id) && beforeTotals.impressions > 0) {
-      const beforeRate = beforeTotals.impressions / daysInclusive(before.start, before.end);
-      const afterRate = afterTotals.impressions / daysInclusive(after.start, after.end);
-      seoContext.demandShiftPct = ((afterRate - beforeRate) / beforeRate) * 100;
+      const rate = (value, period) => value / daysInclusive(period.start, period.end);
+      const treatedDemand = rate(afterTotals.impressions, after) / rate(beforeTotals.impressions, before);
+      const controlDemand = controlTotals && controlTotals.before.impressions > 0 ? rate(controlTotals.after.impressions, after) / rate(controlTotals.before.impressions, before) : null;
+      seoContext.demandShiftPct = ((controlDemand ? treatedDemand / controlDemand : treatedDemand) - 1) * 100;
+      seoContext.demandNet = Boolean(controlDemand);
     }
     seoContext.before = beforeTotals;
     seoContext.after = afterTotals;
   }
+  const seasonal = seasonality && comparison ? seasonalCheck(root, {metric, sourceId: primarySource, kind, before, after, scope, observedPct: comparison.delta_pct}) : {checked: false, reason: 'not requested'};
   const classified = classifyChanges(changes, {before, after, scopePages: scopePages(scope), linkedIds: linkedChangeIds, experimentId});
-  const confounderList = confounders({classified, before, after, context: {...seoContext, externalContext: contextRefs}});
-  const causal = causalConfidence({design, classified, confounderList, evidence: strength.level, before, after});
+  const confounderList = confounders({classified, before, after, context: {...seoContext, externalContext: contextRefs, controlled, seasonal, parallelTrends: controlled ? controlResult.pre_trend : null}});
+  const designCeiling = controlled ? (controlResult.pre_trend.passed && Math.abs(controlResult.statistic ?? 0) >= 3 ? 'high' : 'medium') : null;
+  const causal = causalConfidence({design: effectiveDesign, designCeiling, classified, confounderList, evidence: strength.level, before, after});
 
   return {
     analysis_kind: analysisKind,
@@ -182,8 +198,51 @@ export function analyzeComparison(root, project, {metricId, sourceId = null, bef
     seo_context: seoContext.before ? {before: seoContext.before, after: seoContext.after} : null,
     provenance: [...beforeMeasure.snapshots, ...afterMeasure.snapshots].filter((snapshot, index, all) => all.findIndex((other) => other.file === snapshot.file) === index).map((snapshot) => ({file: snapshot.file, source_id: snapshot.source_id, adapter: snapshot.adapter, property: snapshot.property, period: snapshot.period, retrieved_at: snapshot.retrieved_at, rows_sha256: snapshot.rows_sha256, input_sha256: snapshot.input?.sha256 ?? null})),
     source_health: {[primarySource]: afterMeasure.health},
-    design,
+    design: effectiveDesign,
+    control: controlResult ? (({rows, ...rest}) => rest)(controlResult) : null,
+    seasonality: seasonal,
   };
+}
+
+// Resolve and measure the control group. `control` is 'auto', 'none', or an
+// explicit page list; only page-scoped GSC measurements can have one.
+function measureControl(root, {control, scope, metric, sourceId, kind, before, after, changes, projectData, now, beforeMeasure, afterMeasure}) {
+  const treatedPages = scopePages(scope);
+  if (control === 'none' || control === null || control === false) return null;
+  const requested = Array.isArray(control);
+  if (!treatedPages.length || kind !== 'gsc_rows') return requested ? {usable: false, requested, reason: 'a control group needs a page-scoped Search Console measurement'} : null;
+  const selection = requested ? {pages: control.map(normalizePage), markets: null, excluded_changed: null, unknown_scope_changes: null} : selectControlPages(root, {sourceId, before, after, treatedPages, changes, segments: loadSeoConfig(root).segments ?? []});
+  const base = {requested: true, selection: requested ? 'explicit' : 'auto', pages: selection.pages.length, page_list: selection.pages.slice(0, 50), markets: selection.markets, excluded_changed_pages: selection.excluded_changed, unknown_scope_changes: selection.unknown_scope_changes};
+  if (selection.pages.length < 3) return {...base, usable: false, reason: `only ${selection.pages.length} untouched page(s) with data in both windows in the same market(s); at least 3 are needed`};
+  const controlScope = {...scope, page: selection.pages};
+  const controlBefore = measurePeriod(root, {metric, sourceId, period: before, scope: controlScope, label: 'control before', project: projectData, now, changes});
+  const controlAfter = measurePeriod(root, {metric, sourceId, period: after, scope: controlScope, label: 'control after', project: projectData, now, changes});
+  if (controlBefore.value === null || controlAfter.value === null || levelFromIssues([...controlBefore.issues, ...controlAfter.issues].filter((entry) => entry.code !== 'timezone_mismatch')) === 'insufficient') {
+    return {...base, usable: false, reason: 'the control pages have insufficient data in a window'};
+  }
+  const did = differenceInDifferences({mapping: beforeMeasure.mapping, kind, treatedBeforeRows: beforeMeasure.rows, treatedAfterRows: afterMeasure.rows, controlBeforeRows: controlBefore.rows, controlAfterRows: controlAfter.rows});
+  if (!did.usable) return {...base, usable: false, reason: did.reason};
+  const controlChangePct = controlBefore.value ? round(((controlAfter.value / daysFactor(beforeMeasure.mapping, after)) / (controlBefore.value / daysFactor(beforeMeasure.mapping, before)) - 1) * 100, 2) : null;
+  return {...base, ...did, control_before: round(controlBefore.value), control_after: round(controlAfter.value), control_change_pct: controlChangePct, rows: {before: controlBefore.rows, after: controlAfter.rows}};
+}
+
+function daysFactor(mapping, period) {
+  return mapping.aggregation === 'sum' ? daysInclusive(period.start, period.end) : 1;
+}
+
+// Year-over-year: did the same scope move the same way over the same windows
+// 52 weeks earlier (weekday-aligned)? Uses only data already ingested.
+function seasonalCheck(root, {metric, sourceId, kind, before, after, scope, observedPct}) {
+  const previousBefore = lastYear(before);
+  const previousAfter = lastYear(after);
+  const beforeRows = scopedRows(root, {sourceId, kind, period: previousBefore, scope});
+  const afterRows = scopedRows(root, {sourceId, kind, period: previousAfter, scope});
+  const coverage = (rows, period) => new Set(rows.map((row) => isoDate(row.date)).filter(Boolean)).size / daysInclusive(period.start, period.end);
+  if (!beforeRows.length || !afterRows.length || coverage(beforeRows, previousBefore) < 0.5 || coverage(afterRows, previousAfter) < 0.5) {
+    return {checked: false, reason: 'no data for the same windows 52 weeks earlier', periods: {before: previousBefore, after: previousAfter}};
+  }
+  const result = comparePeriods({metric, sourceId, kind, beforeRows, afterRows, before: previousBefore, after: previousAfter});
+  return {checked: true, periods: {before: previousBefore, after: previousAfter}, last_year_before: result.before.comparable_value, last_year_after: result.after.comparable_value, last_year_change_pct: result.delta_pct, observed_change_pct: observedPct};
 }
 
 // ---------- rendering ----------
@@ -212,6 +271,10 @@ export function interpretation(analysis, {subject = null} = {}) {
   const timing = `${moved} after ${subject ?? linked}.`;
   if (causal.level === 'none') return `${timing} Causal attribution is not supported: ${causal.reasons.join('; ')}.`;
   const caveat = others.length ? ` but concurrent factors (${others.join(', ')}) reduce causal confidence` : analysis.confounders.length ? ' but the listed minor confounders remain unexcluded' : '';
+  if (analysis.control?.usable) {
+    const net = analysis.control.effect;
+    return `${timing} Relative to ${analysis.control.pages} untouched control page(s) in the same market(s), the net change is ${net > 0 ? '+' : ''}${net} ${analysis.control.mode === 'index' ? '% of the before level' : `${analysis.metric.unit ?? ''} (level)`}${analysis.control.pre_trend.passed ? '' : ', but the groups were already diverging before the change'}${caveat}. Causal confidence: ${upper(causal.level)} (difference-in-differences removes shared shocks such as seasonality and demand, but not page-specific causes).`;
+  }
   return `${timing} The timing is consistent with the hypothesis${caveat}. Causal confidence: ${upper(causal.level)} (a ${(analysis.design ?? 'before_after').replace('before_after', 'before/after').replace(/_/g, ' ')} comparison cannot exclude unobserved causes).`;
 }
 
@@ -232,6 +295,20 @@ export function renderEvidenceBody(analysis, {title, observation, experiment = n
   if (experiment) {
     lines.push('## Experiment threshold check', '', `- Experiment: ${experiment.id} (Marketer7, ${experiment.path}), status at measurement: ${experiment.status}`, `- Definition fingerprint measured: \`${experiment.fingerprint}\`${experiment.definition_matches_review === false ? ' — DOES NOT match the review-time lock' : experiment.definition_matches_review ? ' (matches the review-time lock)' : ''}`, `- Primary metric: ${experiment.definition.primary_metric}; success ${experiment.definition.success_threshold}; failure ${experiment.definition.failure_threshold}`, `- Observed primary value: ${fmt(threshold?.observed ?? null, unit)}`, `- Criteria basis: ${experiment.criteria ? `${experiment.criteria.basis} — ${experiment.criteria.detail}` : 'unknown'}`, `- Threshold result: **${threshold?.result ?? 'insufficient_data'}**${experiment.criteria && !experiment.criteria.authorized ? ' (withheld: the thresholds in force are not the locked ones)' : ''}`, '', 'Analyzer7 reports the threshold comparison only. The experiment verdict and the next decision (continue, stop, iterate, scale) belong to Marketer7.', '');
   }
+  if (analysis.control) {
+    const control = analysis.control;
+    lines.push('## Control group', '');
+    if (control.usable) {
+      lines.push(`- Design: difference-in-differences against ${control.pages} untouched page(s) (${control.selection}${control.markets ? `, markets ${control.markets.join(', ')}` : ''}); pages touched by a registered change in the windows were excluded (${control.excluded_changed_pages ?? 'n/a'})${control.unknown_scope_changes ? `; ${control.unknown_scope_changes} change(s) of unknown scope could not be excluded` : ''}.`,
+        `- Control: ${fmt(control.control_before, unit)} → ${fmt(control.control_after, unit)} (${control.control_change_pct === null ? 'unknown' : `${control.control_change_pct > 0 ? '+' : ''}${control.control_change_pct}%`} on a comparable basis).`,
+        `- Net effect: ${control.effect > 0 ? '+' : ''}${control.effect} (${control.effect_unit}); statistic ${control.statistic} (${control.method}, ${control.matched_days.before} vs ${control.matched_days.after} matched days).`,
+        `- Parallel pre-trends: ${control.pre_trend.passed ? 'hold' : 'VIOLATED'} (statistic ${control.pre_trend.statistic}).`,
+        `- Control pages (first ${Math.min(control.page_list.length, 10)}): ${control.page_list.slice(0, 10).map((page) => `\`${page}\``).join(', ')}`);
+    } else {
+      lines.push(`- Not used: ${control.reason}. The analysis is a plain before/after comparison.`);
+    }
+    lines.push('');
+  }
   lines.push(`## Data quality: ${upper(analysis.data_quality.level)}`, '');
   if (analysis.data_quality.issues.length === 0) lines.push('- No issues detected by the automated checks.');
   for (const entry of analysis.data_quality.issues) lines.push(`- [${entry.severity}] \`${entry.code}\` — ${entry.message}`);
@@ -248,7 +325,12 @@ export function renderEvidenceBody(analysis, {title, observation, experiment = n
   for (const entry of analysis.confounders) if (!aboutLinked.has(entry.code)) explanations.push(entry.message);
   explanations.push('Unregistered changes, algorithm updates, or seasonality not visible to Analyzer7.');
   lines.push(...explanations.map((text) => `- ${text}`), '');
-  lines.push('## Uncertainty', '', `- Design: ${analysis.design ?? 'before_after'}; no control group unless stated.`, '- Seasonality is not controlled by a before/after comparison.');
+  const seasonalLine = analysis.control?.usable
+    ? '- Seasonality: shared seasonality is absorbed by the control group.'
+    : analysis.seasonality?.checked
+      ? `- Seasonality: the same windows 52 weeks earlier moved ${analysis.seasonality.last_year_change_pct > 0 ? '+' : ''}${analysis.seasonality.last_year_change_pct}% (see confounders).`
+      : `- Seasonality is not controlled (${analysis.seasonality?.reason ?? 'no year-over-year data'}).`;
+  lines.push('## Uncertainty', '', `- Design: ${analysis.design ?? 'before_after'}${analysis.control?.usable ? '' : '; no control group'}.`, seasonalLine);
   if (analysis.discrepancies.length) for (const entry of analysis.discrepancies) lines.push(`- ${entry.period}: ${entry.other_source} disagrees with canonical ${entry.canonical_source} (${entry.other_value} vs ${entry.canonical_value}, ${entry.difference_pct}%).`);
   lines.push('', '## Interpretation', '', interpretation(analysis), '');
   lines.push('## Provenance', '');
@@ -307,6 +389,12 @@ export function writeEvidence(root, analysis, {title, observation, kind = 'compa
     baseline_ids: baselineIds,
     context_refs: contextRefs,
     confounder_count: analysis.confounders.length,
+    design: analysis.design ?? 'before_after',
+    control_pages: analysis.control?.usable ? analysis.control.pages : 0,
+    did_effect: analysis.control?.usable ? analysis.control.effect : null,
+    pre_trend_passed: analysis.control?.usable ? analysis.control.pre_trend.passed : null,
+    seasonality_checked: Boolean(analysis.seasonality?.checked),
+    last_year_change_pct: analysis.seasonality?.checked ? analysis.seasonality.last_year_change_pct : null,
     artifacts: analysis.provenance.map((entry) => entry.file),
     supersedes,
   };

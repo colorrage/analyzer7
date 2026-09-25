@@ -4,7 +4,8 @@
 //   compare     --metric <id> --before-start --before-end --after-start --after-end
 //               [--source <id>] [--page /a,/b] [--query q] [--country c] [--segment s]
 //               [--change CH-1,CH-2] [--experiment EX-NNN] [--design <design>]
-//               [--context ref,...] [--record --title "<t>" --observation "<text>" [--supersedes EV-NNN]]
+//               [--context ref,...] [--control auto|none | --control-page /a,/b] [--yoy]
+//               [--record --title "<t>" --observation "<text>" [--supersedes EV-NNN]]
 //   discrepancy --metric <id> --start <date> --end <date> [--sources a,b] [--record]
 //   monitor     [--record]
 //   maintain    [--report]
@@ -34,8 +35,17 @@ function context(argv, spec) {
 }
 
 function compare(argv) {
-  const {args, project, root, now} = context(argv, {flags: ['record'], options: [...COMMON, 'metric', 'source', 'before-start', 'before-end', 'after-start', 'after-end', 'query', 'country', 'device', 'segment', 'experiment', 'design', 'title', 'observation', 'supersedes'], lists: ['page', 'change', 'context']});
-  for (const key of ['metric', 'beforeStart', 'beforeEnd', 'afterStart', 'afterEnd']) if (!args[key]) throw new UsageError('compare needs --metric, --before-start, --before-end, --after-start, --after-end');
+  const {args, project, root, now} = context(argv, {flags: ['record', 'yoy'], options: [...COMMON, 'metric', 'source', 'before-start', 'before-end', 'after-start', 'after-end', 'query', 'country', 'device', 'segment', 'experiment', 'design', 'title', 'observation', 'supersedes', 'control'], lists: ['page', 'change', 'context', 'control-page']});
+  // --yoy: the before window is the after window 52 weeks earlier (weekday-aligned).
+  if (args.yoy) {
+    if (!args.afterStart || !args.afterEnd) throw new UsageError('--yoy needs --after-start and --after-end');
+    if (args.beforeStart || args.beforeEnd) throw new UsageError('--yoy sets the before window itself; do not pass --before-start/--before-end');
+    args.beforeStart = addDays(args.afterStart, -364);
+    args.beforeEnd = addDays(args.afterEnd, -364);
+  }
+  for (const key of ['metric', 'beforeStart', 'beforeEnd', 'afterStart', 'afterEnd']) if (!args[key]) throw new UsageError('compare needs --metric, --before-start, --before-end, --after-start, --after-end (or --after-* with --yoy)');
+  const control = args.controlPage ? args.controlPage : args.control ?? 'auto';
+  if (!Array.isArray(control) && !['auto', 'none'].includes(control)) throw new UsageError('--control must be auto or none (or pass --control-page /a,/b)');
   const analysis = analyzeComparison(root, project, {
     metricId: args.metric,
     sourceId: args.source ?? null,
@@ -47,6 +57,8 @@ function compare(argv) {
     design: args.design ?? 'before_after',
     now,
     contextRefs: args.context ?? [],
+    control,
+    seasonality: !args.yoy,
   });
   const output = {status: 'analyzed', interpretation: interpretation(analysis), analysis};
   if (args.record) {

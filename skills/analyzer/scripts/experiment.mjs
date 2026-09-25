@@ -4,6 +4,7 @@
 // definition fingerprint it measured, and reports a threshold comparison.
 //
 //   plan     --experiment EX-NNN [--metric <id>] [--source <id>] [--page /a,/b]
+//            [--control auto|none | --control-page /a,/b]
 //            [--design before_after|controlled|randomized_controlled]
 //            [--baseline-start <date> --baseline-end <date>] [--record-baseline]
 //   evaluate --experiment EX-NNN [--record] [--allow-open-window]
@@ -14,7 +15,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import {UsageError, addDays, daysInclusive, findRecord, listRecords, nowIso, parseArgs, parsePeriod, parseTimestamp, printJson, readDocument, relative, renderDocument, requireInitialized, resolveProject, runCli, updateDocument, writeNew} from './lib/core.mjs';
+import {UsageError, addDays, daysInclusive, findRecord, listRecords, normalizePage, nowIso, parseArgs, parsePeriod, parseTimestamp, printJson, readDocument, relative, renderDocument, requireInitialized, resolveProject, runCli, updateDocument, writeNew} from './lib/core.mjs';
+import {selectControlPages} from './lib/control.mjs';
+import {loadSeoConfig} from './lib/state.mjs';
 import {analyzeComparison, resolveMetric, thresholdResult, writeEvidence} from './lib/analysis.mjs';
 import {writeExternalReference} from './lib/export.mjs';
 import {findMarketerExperiment} from './lib/neighbors.mjs';
@@ -42,7 +45,7 @@ function linkedChanges(root, experimentId) {
 }
 
 function plan(argv) {
-  const args = parseArgs(argv, {flags: ['record-baseline'], options: ['project', 'now', 'experiment', 'metric', 'source', 'design', 'baseline-start', 'baseline-end'], lists: ['page']});
+  const args = parseArgs(argv, {flags: ['record-baseline'], options: ['project', 'now', 'experiment', 'metric', 'source', 'design', 'baseline-start', 'baseline-end', 'control'], lists: ['page', 'control-page']});
   const project = resolveProject(args.project);
   const root = requireInitialized(project);
   const now = nowIso(args.now);
@@ -62,6 +65,14 @@ function plan(argv) {
   if (pages.length === 0) warnings.push('no page scope: the measurement covers the whole property (site-wide), which weakens attribution');
   const length = daysInclusive(window.start, window.end);
   const before = args.baselineStart && args.baselineEnd ? {start: args.baselineStart, end: args.baselineEnd} : {start: addDays(window.start, -length), end: addDays(window.start, -1)};
+  // The control group is fixed now, before any outcome is seen (pre-registration).
+  const controlMode = args.controlPage ? 'explicit' : args.control ?? 'auto';
+  if (!['auto', 'none', 'explicit'].includes(controlMode)) throw new UsageError('--control must be auto or none (or pass --control-page /a,/b)');
+  let controlPages = args.controlPage ? args.controlPage.map(normalizePage) : [];
+  if (controlMode === 'auto' && pages.length) {
+    controlPages = selectControlPages(root, {sourceId: args.source ?? metric.canonical_source, before, after: null, treatedPages: pages, changes: listRecords(root, 'change'), segments: loadSeoConfig(root).segments ?? []}).pages;
+    if (controlPages.length < 3) warnings.push(`only ${controlPages.length} untouched control page(s) found in the same market(s) with before-window data; evaluation will be a plain before/after comparison unless more exist`);
+  }
   const data = {
     schema_version: 1,
     experiment_id: experiment.id,
@@ -82,6 +93,8 @@ function plan(argv) {
     window_end: window.end,
     baseline_id: null,
     change_ids: changes.map((change) => change.data.id),
+    control_mode: controlMode,
+    control_pages: controlPages,
     evidence_ids: [],
     planned_at: now,
     updated_at: now,
@@ -98,7 +111,7 @@ function plan(argv) {
     `- Measurement window (Marketer7): ${window.start} → ${window.end}`,
     `- Baseline period (Analyzer7): ${before.start} → ${before.end}${args.baselineStart ? ' (explicit)' : ' (same length, immediately before the window)'}`,
     `- Scope: ${pages.length ? pages.join(', ') : 'site-wide'}`,
-    `- Design: ${design}`,
+    `- Design: ${design}; control group: ${controlMode === 'none' ? 'none' : `${controlPages.length} page(s), fixed at planning (${controlMode})`}`,
     `- Linked changes: ${changes.map((change) => change.data.id).join(', ') || 'none registered yet'}`,
     '',
     ...(warnings.length ? ['## Warnings', '', ...warnings.map((warning) => `- ${warning}`), ''] : []),
@@ -163,6 +176,8 @@ function evaluate(argv) {
     analysisKind: 'experiment_evaluation',
     extraIssues,
     baselineCheck: baseline ? {id: baseline.data.id, value: baseline.data.value} : null,
+    // Pre-registered control pages; plans from before control support use auto.
+    control: planData.control_mode === 'none' ? 'none' : Array.isArray(planData.control_pages) && planData.control_pages.length ? planData.control_pages : planData.control_mode === 'explicit' ? [] : 'auto',
   });
   const measured = thresholdResult(experiment, analysis.comparison?.after?.value ?? null, analysis.data_quality.level);
   const threshold = criteria.authorized ? {...measured, criteria_basis: criteria.basis} : {observed: measured.observed, result: criteria.basis, criteria_basis: criteria.basis};
