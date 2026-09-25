@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {MARKETER_REPO, REPO, SIGNAL_REPO, T, copyFixture, evaluateEx014, neighborHashes, run, setupEcosystem, tempDir, validateState, writeCsv} from './helpers.mjs';
+import {MARKETER_REPO, REPO, SIGNAL_REPO, T, copyFixture, evaluateEx014, neighborHashes, rewriteSnapshotText, run, setupEcosystem, tempDir, validateState, writeCsv} from './helpers.mjs';
 import {findSecrets, redact} from '../skills/analyzer/scripts/lib/redact.mjs';
 import {readSignal} from '../skills/analyzer/scripts/lib/neighbors.mjs';
 
@@ -134,8 +134,8 @@ test('append-only integrity: tampered observations and deleted evidence fail val
   assert.ok(validateState(project).ok);
   const observationDir = path.join(project, '.analyzer', 'observations', 'gsc');
   const observation = path.join(observationDir, fs.readdirSync(observationDir)[0]);
-  const original = fs.readFileSync(observation, 'utf8');
-  fs.writeFileSync(observation, original.replace('"clicks": 3,', '"clicks": 30,'));
+  const original = fs.readFileSync(observation);
+  rewriteSnapshotText(observation, (text) => text.replace('"clicks":3,', '"clicks":30,'));
   assert.match(validateState(project).output, /observation snapshots are immutable/);
   fs.writeFileSync(observation, original);
   const evidenceDir = path.join(project, '.analyzer', 'evidence');

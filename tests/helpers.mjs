@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import zlib from 'node:zlib';
 
 export const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const SCRIPTS = path.join(REPO, 'skills', 'analyzer', 'scripts');
@@ -103,4 +104,17 @@ export function writeCsv(filePath, header, rows) {
 
 export function days(start, count) {
   return Array.from({length: count}, (_, index) => new Date(Date.parse(`${start}T00:00:00Z`) + index * 86400000).toISOString().slice(0, 10));
+}
+
+// Observation snapshots are gzip-compressed JSON.
+export function readSnapshot(filePath) {
+  const buffer = fs.readFileSync(filePath);
+  return JSON.parse((filePath.endsWith('.gz') ? zlib.gunzipSync(buffer) : buffer).toString('utf8'));
+}
+
+export function rewriteSnapshotText(filePath, transform) {
+  const buffer = fs.readFileSync(filePath);
+  const text = (filePath.endsWith('.gz') ? zlib.gunzipSync(buffer) : buffer).toString('utf8');
+  const next = transform(text);
+  fs.writeFileSync(filePath, filePath.endsWith('.gz') ? zlib.gzipSync(next) : next);
 }

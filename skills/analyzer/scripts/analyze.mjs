@@ -12,11 +12,14 @@
 //   audit       --scope growth|revenue|tracking [--days 28] [--metrics a,b]
 //               [--record-baselines] [--report]
 //   funnel      --funnel <id> --start <date> --end <date>
+//   compact     [--prune-unreferenced [--older-than-days 180]] [--dry-run]
 //
 // Common: [--project <dir>] [--now <ISO>]. Output: one JSON object.
 // Nothing here modifies production or any neighbor harness.
 
-import {UsageError, addDays, findRecord, isoDate, listRecords, nowIso, parseArgs, printJson, requireInitialized, resolveProject, round, runCli, scopeFromArgs} from './lib/core.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
+import {UsageError, addDays, findRecord, isoDate, listDir, listRecords, nowIso, parseArgs, printJson, readMaybeGzipJson, readText, relative, requireInitialized, resolveProject, round, runCli, scopeFromArgs, sha256, writeGzipJson} from './lib/core.mjs';
 import {analyzeComparison, interpretation, measurePeriod, resolveMetric, writeEvidence} from './lib/analysis.mjs';
 import {runMonitors} from './lib/monitor.mjs';
 import {probe, readPlans} from './lib/probe.mjs';
@@ -143,6 +146,8 @@ function maintain(argv) {
   }
   if (snapshot.changes.unconfirmed.length) add('change', 'attention', `unconfirmed change timing: ${snapshot.changes.unconfirmed.join(', ')}`, 'confirm deploy/publish times (supersede with a confirmed record)');
   if (snapshot.changes.unknown_timing.length) add('change', 'attention', `unknown change timing: ${snapshot.changes.unknown_timing.join(', ')}`, 'record the timestamp; unplaced changes weaken every overlapping analysis');
+  const uncompressed = walkFiles(path.join(root, 'observations')).filter((file) => file.endsWith('.json'));
+  if (uncompressed.length) add('storage', 'attention', `${uncompressed.length} uncompressed observation snapshot(s)`, 'run analyze.mjs compact (gzip, hash-verified)');
   const plans = readPlans(root);
   for (const plan of plans) if (plan.status === 'planned' && !plan.baseline_id) add('experiment', 'attention', `${plan.experiment_id} has a plan but no baseline`, 'record the baseline before the window starts');
   const output = {status: 'maintained', now, attention: checks.filter((check) => check.status === 'attention').length, checks, next_action: snapshot.next_action, note: 'MAINTAIN reviews analytical state only; it never modifies production, neighbor harnesses, or historical evidence.'};
@@ -240,9 +245,66 @@ function funnel(argv) {
   printJson({status: 'measured', funnel: definition.id, definition_status: definition.status ?? 'active', period, stages, steps});
 }
 
+function walkFiles(directory) {
+  return listDir(directory).flatMap((entry) => (entry.isDirectory() ? walkFiles(path.join(directory, entry.name)) : [path.join(directory, entry.name)]));
+}
+
+// compact: gzip every uncompressed snapshot (hash verified before and after).
+// --prune-unreferenced additionally removes snapshots older than
+// --older-than-days that no record, report, or plan mentions and that are
+// not the newest of their source and kind; each leaves a tombstone line with
+// its hash in observations/pruned.md, so provenance stays verifiable.
+function compact(argv) {
+  const {args, project, root, now} = context(argv, {flags: ['prune-unreferenced', 'dry-run'], options: [...COMMON, 'older-than-days']});
+  const base = path.join(root, 'observations');
+  const files = walkFiles(base).filter((file) => /\.json(\.gz)?$/.test(file));
+  const bytes = (list) => list.reduce((total, file) => total + (fs.existsSync(file) ? fs.statSync(file).size : 0), 0);
+  const before = bytes(files);
+  const converted = [];
+  for (const file of files.filter((name) => name.endsWith('.json'))) {
+    const snapshot = readMaybeGzipJson(file);
+    if (sha256(JSON.stringify(snapshot.rows)) !== snapshot.rows_sha256) throw new Error(`${relative(project, file)}: rows do not match rows_sha256; refusing to compact a modified snapshot`);
+    converted.push(relative(project, file));
+    if (args.dryRun) continue;
+    const target = `${file}.gz`;
+    writeGzipJson(target, snapshot);
+    const check = readMaybeGzipJson(target);
+    if (sha256(JSON.stringify(check.rows)) !== snapshot.rows_sha256) throw new Error(`${relative(project, target)}: verification failed after compression`);
+    fs.rmSync(file);
+  }
+  const pruned = [];
+  if (args.pruneUnreferenced) {
+    const days = Number(args.olderThanDays ?? 180);
+    const cutoff = addDays(isoDate(now), -days);
+    const mentions = walkFiles(root).filter((file) => file.endsWith('.md')).map((file) => readText(file)).join('\n');
+    const snapshots = walkFiles(base).filter((file) => /\.json(\.gz)?$/.test(file)).map((file) => ({file, data: readMaybeGzipJson(file)}));
+    const newest = new Map();
+    for (const snapshot of snapshots) {
+      const key = `${snapshot.data.source_id}|${snapshot.data.kind}`;
+      const date = snapshot.data.period?.end ?? isoDate(snapshot.data.retrieved_at);
+      if (!newest.has(key) || date > newest.get(key).date) newest.set(key, {date, file: snapshot.file});
+    }
+    const tombstonePath = path.join(base, 'pruned.md');
+    for (const snapshot of snapshots) {
+      const rel = relative(project, snapshot.file);
+      const plain = rel.replace(/\.gz$/, '');
+      const date = snapshot.data.period?.end ?? isoDate(snapshot.data.retrieved_at);
+      const newestOfKind = newest.get(`${snapshot.data.source_id}|${snapshot.data.kind}`).file === snapshot.file;
+      if (date >= cutoff || newestOfKind || mentions.includes(plain)) continue;
+      pruned.push(rel);
+      if (args.dryRun) continue;
+      if (!fs.existsSync(tombstonePath)) fs.writeFileSync(tombstonePath, '# Pruned observations\n\nAppend-only. Each line keeps the hash of a snapshot that no record referenced when it was pruned.\n\n');
+      fs.appendFileSync(tombstonePath, `- ${plain} — source ${snapshot.data.source_id}, ${snapshot.data.kind}, period ${snapshot.data.period?.start ?? '?'} → ${snapshot.data.period?.end ?? '?'}, ${snapshot.data.row_count} rows, rows_sha256 ${snapshot.data.rows_sha256}, pruned ${now} (unreferenced, older than ${days} days)\n`);
+      fs.rmSync(snapshot.file);
+    }
+  }
+  const after = bytes(walkFiles(base).filter((file) => /\.json(\.gz)?$/.test(file)));
+  printJson({status: args.dryRun ? 'dry_run' : 'compacted', converted: converted.length, pruned, bytes_before: before, bytes_after: args.dryRun ? null : after});
+}
+
 function main(argv) {
   const [command, ...rest] = argv;
-  const commands = {compare, discrepancy: discrepancyCommand, monitor, maintain, audit, funnel};
+  const commands = {compare, discrepancy: discrepancyCommand, monitor, maintain, audit, funnel, compact};
   if (!commands[command]) throw new UsageError(`analyze.mjs <${Object.keys(commands).join('|')}> [options]`);
   commands[command](rest);
   return 0;

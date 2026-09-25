@@ -11,7 +11,7 @@ Markdown records use flat `key: value` YAML frontmatter with `schema_version: 1`
   metrics.json               metric dictionary and funnels
   monitors.json              monitor rules (MONITOR mode)
   seo/config.json            SEO property, segments, thresholds, expected-CTR curve
-  observations/<source>/     immutable normalized snapshots (JSON, hashed)
+  observations/<source>/     immutable normalized snapshots (gzip JSON, hashed); pruned.md tombstones
   evidence/EV-NNN-*.md       evidence ledger + index.md
   changes/CH-NNN-*.md        change registry + index.md
   baselines/BL-NNN-*.md      baselines + index.md
@@ -27,7 +27,7 @@ Markdown records use flat `key: value` YAML frontmatter with `schema_version: 1`
 
 | Artifact | Rule |
 | --- | --- |
-| observations | Immutable. `rows_sha256` is verified by validation. A re-pull writes a new snapshot; for each day, the most recently retrieved snapshot wins. |
+| observations | Immutable, stored gzip-compressed (`.json.gz`). `rows_sha256` is verified by validation. A re-pull writes a new snapshot; for each day, the most recently retrieved snapshot wins. `analyze.mjs compact` gzips older uncompressed snapshots after verifying their hash; references to `x.json` resolve to `x.json.gz`. With `--prune-unreferenced --older-than-days N`, snapshots that no record mentions and that are not the newest of their source and kind are removed, each leaving a tombstone line with its hash in `observations/pruned.md`. |
 | evidence, changes, baselines | Append-only. A correction is a new record with `supersedes: <ID>`. The earlier record is never edited or deleted. |
 | anomalies, opportunities, plans | Living status. A status change updates frontmatter `status` and appends a line to `## Status history`. |
 | registries (`sources.json`, `metrics.json`, `monitors.json`, `seo/config.json`) | Living configuration. A metric definition change bumps `version` and keeps the prior definition in `history`. Status changes append to `status_history` with a reason. |

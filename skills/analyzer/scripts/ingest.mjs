@@ -13,7 +13,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import {UsageError, isoDate, nowIso, parseArgs, printJson, relative, requireInitialized, resolveProject, runCli, slugify, uniquePath, writeJson} from './lib/core.mjs';
+import {UsageError, isoDate, nowIso, parseArgs, printJson, relative, requireInitialized, resolveProject, runCli, slugify, uniquePath, writeGzipJson} from './lib/core.mjs';
 import {ADAPTERS, normalizeInput} from './lib/adapters.mjs';
 import {redact} from './lib/redact.mjs';
 import {getSource, observationDir, updateSource} from './lib/state.mjs';
@@ -73,8 +73,8 @@ function main(argv) {
   if (rowDates.length && rowDates.at(-1) > today) snapshot.warnings.push(`rows are dated up to ${rowDates.at(-1)}, after the ingest date ${today}; freshness is capped at ${today}`);
   if (snapshot.rows.length === 0) snapshot.warnings.push('the export contains no rows; source freshness is not advanced');
   const stamp = snapshot.period?.end ?? isoDate(now);
-  const target = uniquePath(path.join(observationDir(root, source.id), `${stamp}-${adapter}-${slugify(path.basename(inputPath, path.extname(inputPath)), 40)}.json`));
-  writeJson(target, snapshot);
+  const target = uniquePath(path.join(observationDir(root, source.id), `${stamp}-${adapter}-${slugify(path.basename(inputPath, path.extname(inputPath)), 40)}.json.gz`));
+  writeGzipJson(target, snapshot);
   // Undated aggregate pulls (query×page for a period) cover their declared
   // period; undated state snapshots (crawl, indexation) are current as of retrieval.
   let through = null;

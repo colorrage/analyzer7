@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import {days, run, tempDir, writeCsv} from './helpers.mjs';
+import {days, readSnapshot, run, tempDir, validateState, writeCsv} from './helpers.mjs';
 import {parseFrontmatter, serializeFrontmatter} from '../skills/analyzer/scripts/lib/core.mjs';
 import {findSecrets, redact} from '../skills/analyzer/scripts/lib/redact.mjs';
 import {totals} from '../skills/analyzer/scripts/lib/seo.mjs';
@@ -192,7 +192,7 @@ test('missing GSC clicks/impressions stay unknown, not zero', () => {
   run('record.mjs', ['source', '--project', directory, '--id', 'gsc', '--type', 'search', '--adapter', 'gsc', '--auth-method', 'mcp', '--now', NOW]);
   const file = writeCsv(path.join(directory, 'gsc.csv'), 'date,clicks,impressions', eightWeeks.map((date, index) => `${date},${index === 40 ? '' : 10},${index === 41 ? 'n/a' : 200}`));
   run('ingest.mjs', ['--project', directory, '--source', 'gsc', '--input', file, '--now', NOW]);
-  const snapshot = JSON.parse(fs.readFileSync(path.join(directory, '.analyzer', 'observations', 'gsc', fs.readdirSync(path.join(directory, '.analyzer', 'observations', 'gsc'))[0]), 'utf8'));
+  const snapshot = readSnapshot(path.join(directory, '.analyzer', 'observations', 'gsc', fs.readdirSync(path.join(directory, '.analyzer', 'observations', 'gsc'))[0]));
   assert.equal(snapshot.rows[40].clicks, null);
   assert.equal(snapshot.rows[41].impressions, null);
   const clicks = compare(directory, 'organic_clicks');
@@ -265,8 +265,36 @@ test('timeseries: non-numeric columns are dimensions, not phantom metrics', () =
   const directory = project([{id: 'revenue', kind: 'count', aggregation: 'sum', series: 'revenue'}]);
   const result = ingest(directory, 'wide', 'date,country,device,revenue,signups', eightWeeks.flatMap((date) => [`${date},RO,mobile,100,3`, `${date},DE,desktop,50,1`]));
   assert.deepEqual(result.dimensions, ['date', 'metric', 'country', 'device']);
-  const snapshot = JSON.parse(fs.readFileSync(path.join(directory, result.observation), 'utf8'));
+  const snapshot = readSnapshot(path.join(directory, result.observation));
   assert.deepEqual([...new Set(snapshot.rows.map((row) => row.metric))].sort(), ['revenue', 'signups']);
   assert.equal(compare(directory, 'revenue').analysis.comparison.before.value, 4200);
   assert.equal(compare(directory, 'revenue', ['--country', 'RO']).analysis.comparison.before.value, 2800);
+});
+
+test('compaction: snapshots are gzipped, old references still resolve, and pruning leaves a verifiable tombstone', async () => {
+  const zlib = await import('node:zlib');
+  const directory = project([{id: 'signups', kind: 'count', aggregation: 'sum', series: 'signups'}]);
+  const recent = ingest(directory, 'recent', 'date,metric,value', eightWeeks.map((date) => `${date},signups,5`));
+  assert.match(recent.observation, /\.json\.gz$/);
+  // A legacy uncompressed snapshot, referenced by evidence, plus an old unreferenced one.
+  const legacyDir = path.join(directory, '.analyzer', 'observations', 'db');
+  const legacy = readSnapshot(path.join(directory, recent.observation));
+  fs.writeFileSync(path.join(legacyDir, '2026-09-25-timeseries-legacy.json'), JSON.stringify(legacy, null, 2));
+  const old = ingest(directory, 'old', 'date,metric,value', days('2025-01-01', 28).map((date) => `${date},signups,4`));
+  compare(directory, 'signups');
+  run('analyze.mjs', ['compare', '--project', directory, '--metric', 'signups', '--before-start', '2026-08-01', '--before-end', '2026-08-28', '--after-start', '2026-08-29', '--after-end', '2026-09-25', '--record', '--title', 'signups', '--now', NOW]);
+  const evidenceDir = path.join(directory, '.analyzer', 'evidence');
+  const evidenceFile = path.join(evidenceDir, fs.readdirSync(evidenceDir).find((name) => name.startsWith('EV-001')));
+  fs.appendFileSync(evidenceFile, '\nLegacy reference: `.analyzer/observations/db/2026-09-25-timeseries-legacy.json`\n');
+  const before = fs.readFileSync(path.join(legacyDir, '2026-09-25-timeseries-legacy.json')).length;
+  const result = run('analyze.mjs', ['compact', '--project', directory, '--prune-unreferenced', '--older-than-days', '180', '--now', NOW]);
+  assert.equal(result.converted, 1);
+  assert.ok(fs.statSync(path.join(legacyDir, '2026-09-25-timeseries-legacy.json.gz')).size < before / 3, 'gzip shrinks the snapshot');
+  assert.deepEqual(result.pruned, [old.observation], 'only the old, unreferenced, non-newest snapshot is pruned');
+  const tombstones = fs.readFileSync(path.join(legacyDir, '..', 'pruned.md'), 'utf8');
+  assert.match(tombstones, new RegExp(`${old.observation.replace(/\.gz$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} — source db, timeseries`));
+  assert.match(tombstones, /rows_sha256 [0-9a-f]{64}/);
+  assert.equal(compare(directory, 'signups').analysis.comparison.before.value, 140, 'analysis still reads the compacted data');
+  assert.ok(validateState(directory).ok, validateState(directory).output);
+  assert.ok(zlib.gunzipSync(fs.readFileSync(path.join(directory, recent.observation))).length > 0);
 });

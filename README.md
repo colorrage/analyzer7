@@ -96,6 +96,7 @@ Then run `/analyzer` in the project whose data you want to analyze. Live state i
 
 - **Resume without context bloat.** `state.mjs` builds the resume from indexes, frontmatter, and registries only. It never loads observation rows or full evidence bodies, so years of evidence stay out of context until a record is opened.
 - **No duplicate sources of truth.** Health is computed, not stored. The next IDs come from disk, not counters. Experiment definitions stay in `.marketer/`.
+- **Compact.** Observation snapshots are gzip-compressed (about 17× smaller on CMR's data). `analyze.mjs compact` converts older snapshots, and an opt-in retention rule prunes only unreferenced ones, leaving hash tombstones.
 - **Append-only.** Corrections supersede. Validation fails on deleted records, broken indexes, or observations whose rows no longer match their hash.
 
 ## Evidence model

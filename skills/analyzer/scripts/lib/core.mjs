@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import {spawnSync} from 'node:child_process';
+import zlib from 'node:zlib';
 import {redact} from './redact.mjs';
 
 export const STATE_DIR = '.analyzer';
@@ -156,6 +157,28 @@ export function writeNew(filePath, content) {
 
 export function writeJson(filePath, value) {
   return writeRedacted(filePath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+// Observation snapshots are stored gzip-compressed (`.json.gz`, compact JSON).
+// Readers accept both forms, so references written before compaction keep
+// resolving: `x.json` falls back to `x.json.gz`.
+export function writeGzipJson(filePath, value) {
+  fs.mkdirSync(path.dirname(filePath), {recursive: true});
+  const {text} = redact(JSON.stringify(value));
+  fs.writeFileSync(filePath, zlib.gzipSync(text, {level: 9}));
+  return filePath;
+}
+
+export function readMaybeGzipJson(filePath) {
+  const buffer = fs.readFileSync(filePath);
+  const text = filePath.endsWith('.gz') ? zlib.gunzipSync(buffer).toString('utf8') : buffer.toString('utf8');
+  return JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
+}
+
+export function resolveObservationPath(filePath) {
+  if (fs.existsSync(filePath)) return filePath;
+  if (!filePath.endsWith('.gz') && fs.existsSync(`${filePath}.gz`)) return `${filePath}.gz`;
+  return null;
 }
 
 export function uniquePath(filePath) {

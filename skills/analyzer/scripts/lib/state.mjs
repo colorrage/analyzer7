@@ -2,7 +2,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import {UsageError, isoDate, listDir, readDocument, readJson, writeJson} from './core.mjs';
+import {UsageError, isoDate, listDir, readDocument, readJson, readMaybeGzipJson, writeJson} from './core.mjs';
 
 export const SOURCE_TYPES = new Set(['analytics', 'search', 'revenue', 'product', 'ranking', 'performance', 'crawl', 'indexation', 'crm', 'email', 'social', 'logs', 'harness', 'custom']);
 export const OBSERVATION_KINDS = new Set(['gsc_rows', 'timeseries', 'rankings', 'crawl', 'cwv', 'indexation']);
@@ -98,9 +98,9 @@ export function listObservations(root, {sourceId = null, kind = null} = {}) {
   const snapshots = [];
   for (const dir of sourceDirs) {
     for (const entry of listDir(path.join(base, dir))) {
-      if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+      if (!entry.isFile() || !/\.json(\.gz)?$/.test(entry.name)) continue;
       const filePath = path.join(base, dir, entry.name);
-      const snapshot = readJson(filePath);
+      const snapshot = readMaybeGzipJson(filePath);
       if (kind && snapshot.kind !== kind) continue;
       snapshots.push({...snapshot, file: path.relative(path.dirname(root), filePath).split(path.sep).join('/'), absolute_path: filePath});
     }

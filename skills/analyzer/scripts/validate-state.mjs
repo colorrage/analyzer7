@@ -9,7 +9,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {RECORD_KINDS, listDir, parseFrontmatter, parseTimestamp, readText, sha256} from './lib/core.mjs';
+import {RECORD_KINDS, listDir, parseFrontmatter, parseTimestamp, readMaybeGzipJson, readText, resolveObservationPath, sha256} from './lib/core.mjs';
+import zlib from 'node:zlib';
 import {ADAPTERS} from './lib/adapters.mjs';
 import {findSecrets} from './lib/redact.mjs';
 import {CHANGE_ORIGINS, CHANGE_TYPES, TIMESTAMP_BASES} from './lib/records.mjs';
@@ -102,9 +103,9 @@ export function validateAnalyzerState(root) {
   for (const monitor of monitors.monitors ?? []) check(metricIds.has(monitor.metric), `monitors.json: ${monitor.id} watches unknown metric ${monitor.metric}`);
 
   // Observations: immutable; the recorded hash must still match the rows.
-  for (const file of walk(path.join(root, 'observations')).filter((name) => name.endsWith('.json'))) {
+  for (const file of walk(path.join(root, 'observations')).filter((name) => /\.json(\.gz)?$/.test(name))) {
     try {
-      const snapshot = JSON.parse(readText(file));
+      const snapshot = readMaybeGzipJson(file);
       check(snapshot.schema_version === 1, `${label(file)}: schema_version must be 1`);
       check(OBSERVATION_KINDS.has(snapshot.kind), `${label(file)}: unknown kind ${snapshot.kind}`);
       check(sourceIds.has(snapshot.source_id), `${label(file)}: source ${snapshot.source_id} is not registered`);
@@ -141,7 +142,9 @@ export function validateAnalyzerState(root) {
     for (const [id, file] of indexed) check(files.includes(file), `${dir}/index.md: ${id} points to ${file}, which no longer exists — records are append-only and must not be deleted`);
   }
 
-  const exists = (relativePath) => fs.existsSync(path.join(path.dirname(root), relativePath));
+  // An artifact may have been compacted (x.json → x.json.gz) or pruned with a tombstone.
+  const tombstones = fs.existsSync(path.join(root, 'observations', 'pruned.md')) ? readText(path.join(root, 'observations', 'pruned.md')) : '';
+  const exists = (relativePath) => Boolean(resolveObservationPath(path.join(path.dirname(root), relativePath))) || tombstones.includes(relativePath);
   for (const {file, data} of records.evidence) {
     check(QUALITY.includes(data.data_quality), `${file}: data_quality must be one of ${QUALITY.join(', ')}`);
     check(STRENGTH.includes(data.evidence_strength), `${file}: evidence_strength must be one of ${STRENGTH.join(', ')}`);
@@ -196,7 +199,7 @@ export function validateAnalyzerState(root) {
   }
 
   for (const file of walk(root)) {
-    const found = findSecrets(readText(file));
+    const found = findSecrets(file.endsWith('.gz') ? zlib.gunzipSync(fs.readFileSync(file)).toString('utf8') : readText(file));
     check(found.length === 0, `${label(file)}: possible secret or personal data (${found.join(', ')}) — Analyzer7 state must not hold credentials or unnecessary PII`);
   }
   return {checks, errors, warnings};
