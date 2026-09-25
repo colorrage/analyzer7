@@ -1,0 +1,5 @@
+url,coverage_state,google_canonical,user_canonical,last_crawl,in_sitemap
+https://www.example.test/calculator-impozit-micro/,Submitted and indexed,https://www.example.test/calculator-impozit-micro/,https://www.example.test/calculator-impozit-micro/,2026-09-18,true
+https://www.example.test/impozit-micro-2026/,"Duplicate, Google chose different canonical than user",https://www.example.test/calculator-impozit-micro/,https://www.example.test/impozit-micro-2026/,2026-09-15,true
+https://www.example.test/blog/ghid-impozit-micro/,Crawled - currently not indexed,,https://www.example.test/calculator-impozit-micro/,2026-09-10,true
+https://www.example.test/landing/vechi/,URL is unknown to Google,,,,true

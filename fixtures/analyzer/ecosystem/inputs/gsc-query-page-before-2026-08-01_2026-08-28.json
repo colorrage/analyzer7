@@ -1,0 +1,94 @@
+{
+  "rows": [
+    {
+      "keys": [
+        "calculator impozit micro 2026",
+        "https://www.example.test/calculator-impozit-micro/"
+      ],
+      "clicks": 67,
+      "impressions": 6100,
+      "ctr": 0.011,
+      "position": 8.7
+    },
+    {
+      "keys": [
+        "calculator impozit micro 2026",
+        "https://www.example.test/impozit-micro-2026/"
+      ],
+      "clicks": 10,
+      "impressions": 1300,
+      "ctr": 0.0077,
+      "position": 11.2
+    },
+    {
+      "keys": [
+        "impozit micro 2026",
+        "https://www.example.test/calculator-impozit-micro/"
+      ],
+      "clicks": 20,
+      "impressions": 1500,
+      "ctr": 0.0133,
+      "position": 8
+    },
+    {
+      "keys": [
+        "impozit micro 2026",
+        "https://www.example.test/impozit-micro-2026/"
+      ],
+      "clicks": 9,
+      "impressions": 900,
+      "ctr": 0.01,
+      "position": 11
+    },
+    {
+      "keys": [
+        "impozit micro 2026",
+        "https://www.example.test/blog/ghid-impozit-micro/"
+      ],
+      "clicks": 2,
+      "impressions": 600,
+      "ctr": 0.0033,
+      "position": 17
+    },
+    {
+      "keys": [
+        "ghid impozit micro",
+        "https://www.example.test/blog/ghid-impozit-micro/"
+      ],
+      "clicks": 82,
+      "impressions": 2400,
+      "ctr": 0.0342,
+      "position": 4.8
+    },
+    {
+      "keys": [
+        "impozit micro calcul",
+        "https://www.example.test/calculator-impozit-micro/"
+      ],
+      "clicks": 5,
+      "impressions": 800,
+      "ctr": 0.0063,
+      "position": 14.5
+    },
+    {
+      "keys": [
+        "declaratie impozit micro",
+        "https://www.example.test/blog/ghid-impozit-micro/"
+      ],
+      "clicks": 1,
+      "impressions": 350,
+      "ctr": 0.0029,
+      "position": 22
+    },
+    {
+      "keys": [
+        "plafon micro 2026",
+        "https://www.example.test/blog/ghid-impozit-micro/"
+      ],
+      "clicks": 9,
+      "impressions": 200,
+      "ctr": 0.045,
+      "position": 6.2
+    }
+  ]
+}

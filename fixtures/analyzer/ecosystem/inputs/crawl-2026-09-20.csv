@@ -1,0 +1,8 @@
+url,status,redirect_to,redirect_hops,canonical,title,meta_description,robots,in_sitemap,inlinks
+https://www.example.test/calculator-impozit-micro/,200,,0,https://www.example.test/calculator-impozit-micro/,Calculator impozit micro 2026,Calculează impozitul pe venitul microîntreprinderilor.,index follow,true,14
+https://www.example.test/impozit-micro-2026/,200,,0,https://www.example.test/impozit-micro-2026/,Impozit micro 2026,Calculează impozitul pe venitul microîntreprinderilor.,index follow,true,6
+https://www.example.test/blog/ghid-impozit-micro/,200,,0,https://www.example.test/calculator-impozit-micro/,Ghid impozit micro,,index follow,true,9
+https://www.example.test/blog/vechi-impozit-micro/,301,https://www.example.test/blog/arhiva/,2,,,,,true,3
+https://www.example.test/blog/arhiva/,404,,0,,,,,false,1
+https://www.example.test/tag/micro/,200,,0,https://www.example.test/tag/micro/,Impozit micro 2026,Etichetă micro,noindex follow,true,2
+https://www.example.test/landing/vechi/,200,,0,https://www.example.test/landing/vechi/,Landing vechi,Pagină veche,index follow,true,0

@@ -1,0 +1,94 @@
+{
+  "rows": [
+    {
+      "keys": [
+        "calculator impozit micro 2026",
+        "https://www.example.test/calculator-impozit-micro/"
+      ],
+      "clicks": 151,
+      "impressions": 6300,
+      "ctr": 0.024,
+      "position": 7.9
+    },
+    {
+      "keys": [
+        "calculator impozit micro 2026",
+        "https://www.example.test/impozit-micro-2026/"
+      ],
+      "clicks": 9,
+      "impressions": 1250,
+      "ctr": 0.0072,
+      "position": 12
+    },
+    {
+      "keys": [
+        "impozit micro 2026",
+        "https://www.example.test/calculator-impozit-micro/"
+      ],
+      "clicks": 36,
+      "impressions": 1450,
+      "ctr": 0.0248,
+      "position": 7.6
+    },
+    {
+      "keys": [
+        "impozit micro 2026",
+        "https://www.example.test/impozit-micro-2026/"
+      ],
+      "clicks": 7,
+      "impressions": 820,
+      "ctr": 0.0085,
+      "position": 11.6
+    },
+    {
+      "keys": [
+        "impozit micro 2026",
+        "https://www.example.test/blog/ghid-impozit-micro/"
+      ],
+      "clicks": 1,
+      "impressions": 640,
+      "ctr": 0.0016,
+      "position": 17.4
+    },
+    {
+      "keys": [
+        "ghid impozit micro",
+        "https://www.example.test/blog/ghid-impozit-micro/"
+      ],
+      "clicks": 84,
+      "impressions": 2480,
+      "ctr": 0.0339,
+      "position": 4.7
+    },
+    {
+      "keys": [
+        "impozit micro calcul",
+        "https://www.example.test/calculator-impozit-micro/"
+      ],
+      "clicks": 12,
+      "impressions": 830,
+      "ctr": 0.0145,
+      "position": 12.9
+    },
+    {
+      "keys": [
+        "declaratie impozit micro",
+        "https://www.example.test/blog/ghid-impozit-micro/"
+      ],
+      "clicks": 2,
+      "impressions": 390,
+      "ctr": 0.0051,
+      "position": 16.4
+    },
+    {
+      "keys": [
+        "calculator micro 2026",
+        "https://www.example.test/calculator-impozit-micro/"
+      ],
+      "clicks": 5,
+      "impressions": 300,
+      "ctr": 0.0167,
+      "position": 9.1
+    }
+  ]
+}
