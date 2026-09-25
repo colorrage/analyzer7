@@ -25,7 +25,7 @@ Without a change registry, analytics cannot be interpreted. Changes inside a mea
 
 - Columns are matched by name (Date / Deploy date / Applied / URL(s) / Change type / Task / Notes). A lone `Date` column must be declared: `deployed` if it is the go-live date, `applied` if the changes went live later (then they import as **pending**).
 - Pages come from the URL column only (backticked paths or URLs). Rows with no paths ("56 items") or with wildcards are unknown scope.
-- Re-importing is idempotent. Run `--dry-run` first and show the rows to the user.
+- Re-importing is idempotent. Run `--dry-run` first and show the rows to the user. On a recurring refresh, pass `--since <day after the last import>` so older rows (possibly registered by hand) are not imported again.
 
 ## Mark changes deployed
 

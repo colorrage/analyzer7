@@ -103,3 +103,9 @@ test('Hyper7 tasks with an optional deployed_at import as confirmed changes', ()
   const imported = run('discover.mjs', ['--project', directory, '--import-changes', '--include', 'hyper7', '--now', NOW]);
   assert.deepEqual(imported.imported.map((entry) => [entry.timestamp, entry.confirmed]), [['2026-09-03T15:00:00Z', true]]);
 });
+
+test('--since imports only new release-log rows', () => {
+  const directory = project();
+  const imported = run('record.mjs', ['import-changes', '--project', directory, '--file', path.join(directory, 'release-log.md'), '--table', 'Change table', '--date-means', 'applied', '--since', '2026-08-06', '--now', NOW]);
+  assert.equal(imported.rows, 2, 'the two July rows are older than --since');
+});
