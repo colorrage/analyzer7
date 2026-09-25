@@ -213,19 +213,4 @@ export async function pagespeed(source, urls) {
   return {rows, failures};
 }
 
-// ---------- export files ----------
-
-export function writeExport(name, content) {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'analyzer7-connector-'));
-  const filePath = path.join(directory, name);
-  fs.writeFileSync(filePath, typeof content === 'string' ? content : JSON.stringify(content));
-  return filePath;
-}
-
-export function toCsv(rows, columns) {
-  const escape = (value) => {
-    const text = value === null || value === undefined ? '' : String(value);
-    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-  };
-  return [columns.join(','), ...rows.map((row) => columns.map((column) => escape(row[column])).join(','))].join('\n');
-}
+export {toCsv, writeExport} from './core.mjs';

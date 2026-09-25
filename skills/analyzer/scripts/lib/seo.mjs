@@ -391,3 +391,37 @@ export function indexationSummary(rows) {
     coverage_note: 'Index status is known only for URLs present in the source rows; absence from the rows proves nothing.',
   };
 }
+
+// ---------- ranking proxy from Search Console ----------
+
+// Rank-tracker-shaped observations derived from dated GSC query rows: the
+// impression-weighted average position per query (per country when present)
+// over one window. Explicitly a proxy — an average across all impressions,
+// devices, and SERP layouts, not a tracked SERP position.
+export function rankProxyRows(rows, {start, end, minImpressions = 30, topQueries = 100, queries = null}) {
+  const inWindow = rows.filter((row) => row.query && row.date >= start && row.date <= end);
+  const groups = groupBy(inWindow, (row) => `${row.query}\u0000${row.country ?? ''}`);
+  const observations = [];
+  for (const group of groups.values()) {
+    const impressions = group.reduce((total, row) => total + (Number(row.impressions) || 0), 0);
+    if (impressions < minImpressions) continue;
+    const positioned = group.filter((row) => row.position !== null && row.position !== undefined);
+    const weight = positioned.reduce((total, row) => total + (Number(row.impressions) || 0), 0);
+    if (!weight) continue;
+    const pages = group.some((row) => row.page) ? rollup(group.filter((row) => row.page), ['page']).sort((a, b) => b.impressions - a.impressions) : [];
+    observations.push({
+      keyword: group[0].query,
+      location: group[0].country ?? 'all',
+      device: group[0].device ?? 'all',
+      engine: 'google',
+      position: round(positioned.reduce((total, row) => total + Number(row.position) * (Number(row.impressions) || 0), 0) / weight, 1),
+      url: pages[0]?.page ?? '',
+      serp_features: '',
+      observed_at: `${end}T23:59:59Z`,
+      provider: 'gsc_avg_position_proxy',
+      impressions,
+    });
+  }
+  const wanted = queries ? observations.filter((row) => queries.includes(row.keyword)) : observations.sort((a, b) => b.impressions - a.impressions).slice(0, topQueries);
+  return wanted;
+}

@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import {FIXTURES, T, copyFixture, run, setupEcosystem, validateState} from './helpers.mjs';
+import {FIXTURES, T, copyFixture, days, readSnapshot, run, setupEcosystem, validateState} from './helpers.mjs';
 import {DEFAULT_SEO_CONFIG} from '../skills/analyzer/scripts/lib/state.mjs';
 import * as seo from '../skills/analyzer/scripts/lib/seo.mjs';
 
@@ -156,4 +156,29 @@ test('CWV and indexation classification', () => {
   const findings = seo.cwvFindings([{url: '/a', form_factor: 'phone', lcp_p75_ms: 2400, inp_p75_ms: 100, cls_p75: 0.01}], [{url: '/a', form_factor: 'phone', lcp_p75_ms: 1900, inp_p75_ms: 100, cls_p75: 0.01}]);
   assert.equal(findings.regressions[0].change_pct, 26.3, 'a ≥ 20% p75 regression is flagged even while still "good"');
   assert.ok(fs.existsSync(path.join(FIXTURES, 'ecosystem', 'inputs', 'indexation-2026-09-20.csv')));
+});
+
+test('optional rank proxy: dated GSC query rows become labeled rank observations, and rank changes work on them', () => {
+  const project = setupEcosystem(copyFixture());
+  const rows = [];
+  days('2026-09-10', 14).forEach((date, index) => {
+    rows.push(`${date},cmr pdf,/pl/wzor-cmr-pdf/,10,200,0.05,${index < 7 ? 12 : 6}`);
+    rows.push(`${date},cmr online,/pl/cmr-online/,4,100,0.04,${index < 7 ? 5 : 18}`);
+    rows.push(`${date},thin query,/pl/x/,0,2,0,3`);
+  });
+  const file = path.join(project, 'inputs', 'gsc-date-query.csv');
+  fs.writeFileSync(file, ['date,query,page,clicks,impressions,ctr,position', ...rows].join('\n'));
+  run('ingest.mjs', ['--project', project, '--source', 'gsc', '--input', file, '--now', NOW]);
+  run('record.mjs', ['source', '--project', project, '--id', 'rank-proxy', '--type', 'ranking', '--adapter', 'rankings', '--provider', 'gsc_avg_position_proxy', '--auth-method', 'none', '--stale-after-hours', '9999', '--now', NOW]);
+  const derived = run('seo.mjs', ['rank-proxy', '--project', project, '--into', 'rank-proxy', '--window-days', '7', '--now', NOW]);
+  assert.deepEqual(derived.snapshots.map((entry) => entry.keywords), [2, 2], 'queries under the impression floor are left out, not reported');
+  const changes = run('seo.mjs', ['rankings', '--project', project, '--source', 'rank-proxy', '--now', NOW]).rankings;
+  const byKeyword = Object.fromEntries(changes.changes.map((change) => [change.keyword, change]));
+  assert.equal(byKeyword['cmr pdf'].previous_position, 12);
+  assert.equal(byKeyword['cmr pdf'].current_position, 6);
+  assert.equal(byKeyword['cmr pdf'].movement, 'big_win');
+  assert.equal(byKeyword['cmr online'].alert, true, 'a 13-position loss alerts');
+  assert.equal(byKeyword['cmr pdf'].provider, 'gsc_avg_position_proxy');
+  const snapshot = readSnapshot(path.join(project, derived.snapshots[1].observation));
+  assert.ok(snapshot.warnings.some((warning) => /average-position proxy/.test(warning)));
 });

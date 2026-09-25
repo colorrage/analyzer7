@@ -16,6 +16,8 @@
 
 A keyword missing from the current snapshot is `not_observed` (a tracking gap), never `lost`.
 
+**Optional ranking sources.** Projects with a rank tracker ingest its export through the `rankings` adapter. Projects without one may opt into the Search Console proxy (`seo.mjs rank-proxy`). It takes the impression-weighted average position per query, and per country when the pull includes `country`, over each of two consecutive windows. Queries under `--min-impressions` (default 30) are left out rather than reported. Rows carry `provider: gsc_avg_position_proxy`, and the snapshot warns that it is an average across impressions, devices, and SERP layouts, not a tracked SERP position. Projects that register neither simply show rankings as a data gap.
+
 ## Movement classification (from the seo-rankings skill)
 
 | Class | Rule |

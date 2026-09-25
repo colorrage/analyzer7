@@ -139,7 +139,7 @@ Metrics have stable definitions, a **canonical source**, fallbacks, and a discre
 
 Built on the reusable parts of the CMR `seo-rankings` skill: its operations, movement classification, quick-win and striking-distance windows, CTR crisis rules, cannibalization, and the hard-won conventions in its state notes (headline totals never from summed `query,page` rows; per-day normalization; calendar-aligned windows; content churn inside a window destroys attribution). The CMR-specific parts stay in CMR: the site, the 20-market table, tiers, and task history. The market table becomes generic `segments` in `.analyzer/seo/config.json`. Existing seo-rankings baselines and snapshots import in place through the `seo-rankings-md` adapter.
 
-Rank tracking is a separate observation kind (`keyword × location × device × engine`, with position, URL, SERP features, and timestamp). It is never conflated with GSC's average position. The rank-change output includes deltas, new and lost keywords, URL switches (a cannibalization hint), SERP-feature changes, and alerts for losses of more than 10 positions; stale snapshots are flagged, not compared silently.
+Rank tracking is optional. Projects with a tracker ingest its export, and projects without one may opt into a labeled Search Console average-position proxy (`seo.mjs rank-proxy`). Rank tracking is a separate observation kind (`keyword × location × device × engine`, with position, URL, SERP features, and timestamp). It is never conflated with GSC's average position. The rank-change output includes deltas, new and lost keywords, URL switches (a cannibalization hint), SERP-feature changes, and alerts for losses of more than 10 positions; stale snapshots are flagged, not compared silently.
 
 ## Cross-harness integration
 

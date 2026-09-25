@@ -33,6 +33,7 @@ Rank-tracker exports go through the `rankings` adapter; crawler exports through 
 | compare periods / what changed | `seo.mjs compare --before-start --before-end --after-start --after-end [--dimensions query\|page\|query,page]` |
 | quick wins | `seo.mjs audit` sections: positions 4–15 and high-impression low-CTR |
 | rankings movement | `seo.mjs rankings --source <id> [--record]` (stale snapshots are flagged explicitly) |
+| no rank tracker (optional proxy) | pull GSC `--dimensions date,query[,country]`, register a `ranking` source (`--provider gsc_avg_position_proxy`), then `seo.mjs rank-proxy --into <id>`: impression-weighted average position per query for the latest window and the one before, labeled as a proxy |
 | technical / CWV / indexation | `seo.mjs technical\|cwv\|indexation --source <id>` |
 | did the SEO change work | the `analyzer-experiment` skill (Marketer7 `EX-NNN`) or the `analyzer-evidence` skill (ad-hoc, linked to a `CH-NNN`) |
 | hand opportunities to Marketer7 | `exports.mjs opportunities --top 5` (writes `analyzer-opportunity/v1`, marks them `handed_off`); `exports.mjs list` shows what Marketer7 has consumed |

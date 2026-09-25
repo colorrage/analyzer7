@@ -187,7 +187,8 @@ function normalizeRankings(records, {provider, observedAt}) {
     };
   });
   const dates = rows.map((row) => isoDate(row.observed_at)).filter(Boolean).sort();
-  return {rows, dimensions: ['keyword', 'location', 'device', 'engine', 'observed_at'], period: dates.length ? {start: dates[0], end: dates.at(-1)} : null};
+  const warnings = rows.some((row) => row.provider === 'gsc_avg_position_proxy') ? ['positions are a Search Console average-position proxy (impression-weighted over the window), not tracked SERP positions'] : [];
+  return {rows, dimensions: ['keyword', 'location', 'device', 'engine', 'observed_at'], period: dates.length ? {start: dates[0], end: dates.at(-1)} : null, warnings};
 }
 
 // Columns other than date/metric/value that hold non-numeric values are

@@ -7,6 +7,7 @@
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import {spawnSync} from 'node:child_process';
@@ -553,4 +554,21 @@ export function round(value, digits = 4) {
   if (value === null || value === undefined || Number.isNaN(value)) return null;
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
+}
+
+// ---------- temporary export files (connectors, derived snapshots) ----------
+
+export function writeExport(name, content) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'analyzer7-connector-'));
+  const filePath = path.join(directory, name);
+  fs.writeFileSync(filePath, typeof content === 'string' ? content : JSON.stringify(content));
+  return filePath;
+}
+
+export function toCsv(rows, columns) {
+  const escape = (value) => {
+    const text = value === null || value === undefined ? '' : String(value);
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  return [columns.join(','), ...rows.map((row) => columns.map((column) => escape(row[column])).join(','))].join('\n');
 }

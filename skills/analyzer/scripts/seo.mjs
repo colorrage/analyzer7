@@ -9,17 +9,20 @@
 //   rankings  --source <id> [--record]
 //   compare   --before-start --before-end --after-start --after-end
 //             [--source gsc] [--dimensions query|page|query,page]
+//   rank-proxy --into <ranking source> [--source gsc] [--window-days 7] [--min-impressions 30]
+//             [--top-queries 100 | --queries a,b]   (optional GSC average-position proxy)
 //   technical --source <id>        cwv --source <id>        indexation --source <id>
 //
 // Common: [--project <dir>] [--now <ISO>]. Output: one JSON object.
 
-import {UsageError, addDays, isoDate, listRecords, nowIso, parseArgs, parseTimestamp, printJson, requireInitialized, resolveProject, runCli} from './lib/core.mjs';
+import {UsageError, addDays, isoDate, listRecords, nowIso, parseArgs, parseTimestamp, printJson, requireInitialized, resolveProject, runCli, toCsv, writeExport} from './lib/core.mjs';
 import {readScout} from './lib/neighbors.mjs';
 import {sourceHealth} from './lib/quality.mjs';
 import {createAnomaly, createOpportunity} from './lib/records.mjs';
 import {table, writeReport} from './lib/report.mjs';
 import * as seo from './lib/seo.mjs';
 import {getSource, listObservations, loadSeoConfig, loadSources, selectRows} from './lib/state.mjs';
+import {ingestFile} from './lib/ingest.mjs';
 
 const COMMON = ['project', 'now'];
 const SEO_CHANGE_TYPES = new Set(['seo_content_update', 'technical_seo_fix', 'content_publish', 'landing_page_change', 'performance_fix', 'schema_change', 'tracking_change']);
@@ -325,6 +328,35 @@ function compare(argv) {
   printJson({status: 'compared', periods: window, dimensions, summary: Object.fromEntries(['big_wins', 'improved', 'stable', 'slipping', 'dropped', 'new', 'lost'].map((key) => [key, movement[key].length])), movement});
 }
 
+// rank-proxy: derive rank observations for the latest window and the one
+// before it from dated GSC query rows, and ingest them into a ranking source.
+function rankProxy(argv) {
+  const {args, project, root, now} = context(argv, {options: [...COMMON, 'source', 'into', 'window-days', 'min-impressions', 'top-queries'], lists: ['queries']});
+  const gsc = args.source ?? firstSourceOfType(root, 'search');
+  const target = getSource(root, args.into ?? '');
+  if (!target || target.type !== 'ranking' || target.adapter !== 'rankings') throw new UsageError('--into must be a registered ranking source with adapter rankings (for example: record.mjs source --id rank-proxy --type ranking --adapter rankings --provider gsc_avg_position_proxy)');
+  const source = getSource(root, gsc);
+  if (!source?.data_through) throw new UsageError(`${gsc} has no ingested data`);
+  const days = Number(args.windowDays ?? 7);
+  const through = isoDate(source.data_through);
+  const current = {start: addDays(through, -(days - 1)), end: through};
+  const previous = {start: addDays(current.start, -days), end: addDays(current.start, -1)};
+  const {rows} = selectRows(root, {sourceId: gsc, kind: 'gsc_rows', period: {start: previous.start, end: current.end}, require: ['date', 'query']});
+  if (!rows.length) throw new UsageError(`${gsc} has no dated query rows (pull GSC with --dimensions date,query or date,query,country)`);
+  const options = {minImpressions: Number(args.minImpressions ?? 30), topQueries: Number(args.topQueries ?? 100)};
+  const currentRows = seo.rankProxyRows(rows, {...current, ...options, queries: args.queries ?? null});
+  const tracked = currentRows.map((row) => row.keyword);
+  const previousRows = seo.rankProxyRows(rows, {...previous, ...options, queries: args.queries ?? tracked});
+  const columns = ['keyword', 'location', 'device', 'engine', 'position', 'url', 'serp_features', 'observed_at', 'provider'];
+  const results = [];
+  for (const [period, list] of [[previous, previousRows], [current, currentRows]]) {
+    const file = writeExport(`rank-proxy-${period.start}_${period.end}.csv`, toCsv(list, columns));
+    const ingested = ingestFile(root, project, target.id, {input: file, provider: 'gsc_avg_position_proxy', retrievedAt: now}, now);
+    results.push({period, keywords: list.length, observation: ingested.observation});
+  }
+  printJson({status: 'derived', note: 'gsc_avg_position_proxy: impression-weighted average position over each window, not a tracked SERP position', window_days: days, snapshots: results});
+}
+
 function single(kind, analyze) {
   return (argv) => {
     const {args, root, now} = context(argv, {options: [...COMMON, 'source']});
@@ -343,6 +375,7 @@ function main(argv) {
   const commands = {
     audit,
     rankings,
+    'rank-proxy': rankProxy,
     compare,
     technical: single('crawl', (current) => seo.technicalFindings(current.rows)),
     cwv: single('cwv', (current, previous) => seo.cwvFindings(current.rows, previous?.rows ?? [])),
