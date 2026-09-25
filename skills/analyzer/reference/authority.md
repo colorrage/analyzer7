@@ -12,7 +12,7 @@
 | Change marketing, experiments, thresholds, routes | **no** — Marketer7 owns them |
 | Change the product | **no** |
 | Write `.marketer/`, `.signal/`, `.hyper/`, `.scout/` | **no** |
-| Call an external API | only through tools the user has authorized; Analyzer7 scripts make no network calls |
+| Call an external API | only through tools the user has authorized, or the optional read-only connectors (`connect.mjs`: `webmasters.readonly`, `analytics.readonly`, public HTTP GET), run explicitly. All other scripts make no network calls |
 
 MAINTAIN refreshes Analyzer7's own records only. "Automatic" never means changing something outside `.analyzer/`.
 

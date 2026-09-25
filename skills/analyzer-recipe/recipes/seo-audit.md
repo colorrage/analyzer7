@@ -6,7 +6,11 @@ description: Evidence-first SEO health audit — data availability, GSC overview
 # SEO audit
 
 1. Probe state and list the SEO-related sources and their health. Name any missing source as a data gap now.
-2. With the user, pull fresh exports through the authorized tools for equal 28-day windows (the current window and the previous one): GSC `date` (totals), `date,page` (page trends), and `query,page` (opportunities) for each period. Add a rank-tracker export, a crawl, CrUX/PageSpeed, and page indexing where available. Ingest each through the `analyzer-source` skill.
+2. Pull data for equal windows (the current window and the previous one). Use `connect.mjs gsc-latest` for the end date when a connector is configured:
+   - GSC `date` (totals), `date,page` (page trends), and `query,page,country` (opportunities) for each period.
+   - Page indexing (`inspect`), a crawl, and PageSpeed for the top pages, where available.
+   - A rank-tracker export, where available.
+   Use the optional connectors (`connect.mjs gsc|inspect|crawl|psi`) when the project has them; otherwise export with the provider's tools and ingest through the `analyzer-source` skill.
 3. Import changes so the audit sees what shipped: `discover.mjs --import-changes`.
 4. Run `seo.mjs audit --report`. Review the data gaps first, then the opportunities.
 5. With the user's agreement, re-run with `--record` to register SEO-OPP opportunities and ranking/CWV anomalies (duplicates of open records are skipped).

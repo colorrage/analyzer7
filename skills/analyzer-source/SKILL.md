@@ -14,9 +14,19 @@ user-invocable: false
 
 Confirm with the user that the source exists and how it is accessed. Then run `node "<skill-base-dir>/../analyzer/scripts/record.mjs" source --id <id> --type <type> --adapter <adapter> ...`. Store the auth **method** and tool or env-var **names** only; the script refuses secret-looking values. Update fields later with `--update`.
 
-## Ingest
+## Fetch with a connector (optional)
 
-1. Fetch with the provider's own tool (authorized MCP server, export, SQL query, CLI). Analyzer7 scripts make no network calls.
+If the project has Google Search Console, GA4, or a public site to crawl, register the source with a credential *reference* and fetch with `node "<skill-base-dir>/../analyzer/scripts/connect.mjs" <gsc|gsc-latest|inspect|ga4|crawl|psi> --source <id> ...`:
+- `gsc-latest`: the latest final date, to set windows.
+- `gsc --dimensions date` for totals, `date,page` for page trends, `query,page,country` per window for opportunities.
+- `ga4 --dimensions date,<dims> --metrics <m>`.
+- `inspect`, `crawl` or `psi` for `--urls`, or `--top-pages N --pages-source gsc --since <date>`.
+
+Run a connector only with the user's authorization for that provider. Connectors ingest automatically and record failures on the source.
+
+## Ingest an export
+
+1. Fetch with the provider's own tool (authorized MCP server, export, SQL query, CLI), or use a connector above.
 2. Aggregate user-level data to counts before saving; keep PII out.
 3. Run `ingest.mjs --source <id> --input <file> [--dimensions ...] [--start --end] [--metric <series>] [--set key=value]`.
 4. If the fetch failed, run `ingest.mjs --source <id> --fail "<message>"`. The source shows as unavailable, and analysis degrades explicitly instead of silently reusing old data.

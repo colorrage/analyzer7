@@ -2,9 +2,9 @@
 
 Deferred deliberately. Each item says why.
 
-## Live source clients
+## More connectors
 
-Status: deferred. Analyzer7 v1 normalizes exports produced by the provider's own tool (GSC MCP server, GA4/Stripe exports, SQL, rank-tracker CSV) instead of embedding API clients. That keeps credentials out of Analyzer7 and the core free of SDKs, and it keeps the tests deterministic. A later adapter may call an API directly, but only through an authorized, credential-free-in-state mechanism, with the same snapshot contract.
+Status: partial. Optional read-only connectors ship for Search Console (search analytics and URL inspection), GA4, crawl, and PageSpeed. Stripe, CRM, email, and database connectors are not built; use exports with `ingest.mjs`.
 
 ## Randomized designs
 

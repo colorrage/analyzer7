@@ -21,7 +21,7 @@ const QUALITY = ['high', 'medium', 'low', 'insufficient'];
 const STRENGTH = ['insufficient', 'low', 'medium', 'high'];
 const CAUSAL = ['none', 'low', 'medium', 'high'];
 const THRESHOLD_RESULTS = new Set(['success_threshold_met', 'failure_threshold_met', 'between_thresholds', 'insufficient_data', 'thresholds_unparseable', 'criteria_changed', 'criteria_not_locked', null]);
-const AUTH_KEYS = new Set(['method', 'reference', 'env_vars']);
+const AUTH_KEYS = new Set(['method', 'reference', 'env_vars', 'credentials_file']);
 
 function walk(dir) {
   const files = [];
@@ -75,7 +75,8 @@ export function validateAnalyzerState(root) {
     sourceIds.add(source.id);
     check(SOURCE_TYPES.has(source.type), `sources.json: ${source.id} has unknown type ${source.type}`);
     if (source.adapter) check(Boolean(ADAPTERS[source.adapter]), `sources.json: ${source.id} has unknown adapter ${source.adapter}`);
-    for (const key of Object.keys(source.auth ?? {})) check(AUTH_KEYS.has(key), `sources.json: ${source.id}.auth.${key} is not allowed — store only method, reference, and env-var names`);
+    for (const key of Object.keys(source.auth ?? {})) check(AUTH_KEYS.has(key), `sources.json: ${source.id}.auth.${key} is not allowed — store only method, reference, env-var names, and a credentials file path`);
+    if (source.auth?.credentials_file) check(!/BEGIN|\{|"private_key"/.test(String(source.auth.credentials_file)), `sources.json: ${source.id}.auth.credentials_file must be a path, not key material`);
   }
 
   const metrics = json('metrics.json', {schema_version: 1, metrics: [], funnels: []});

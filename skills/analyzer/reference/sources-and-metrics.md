@@ -12,7 +12,7 @@ Never assume a source exists. Register it only after the user confirms access (o
 | `type` | `analytics, search, revenue, product, ranking, performance, crawl, indexation, crm, email, social, logs, harness, custom` |
 | `provider`, `property` | the system and the property/account/view |
 | `adapter` | the normalizer that turns its exports into observations |
-| `auth` | **method and names only**: `method`, `reference` (tool or doc name), `env_vars` (variable names). Values are refused. |
+| `auth` | **method and references only**: `method`, `reference` (tool or doc name), `env_vars` (variable names), `credentials_file` (a key file's path). Secret values are refused. |
 | `metrics` | metrics this source can report |
 | `timezone` | the timezone the source uses for day boundaries |
 | `freshness` | `expected_lag_hours`, `stale_after_hours` |
@@ -43,6 +43,20 @@ Adapters normalize an export that another tool already produced. Analyzer7 never
 | `indexation` | `indexation` | CSV/JSON: url, coverage_state/verdict, google_canonical, user_canonical, last_crawl | GSC URL inspection / page indexing export |
 
 Run `node "<skill-base-dir>/scripts/ingest.mjs" --source <id> --input <file> [--dimensions ...] [--start --end] [--set country=DEU] [--metric <series>]`. It writes an immutable, hashed snapshot and updates the source's freshness. Headline safety: GSC rows with a `query` or `page` dimension must not be summed into property totals. Adding `page` counts a search once per URL shown, and query rows omit anonymized queries. Totals come from a date-only pull.
+
+## Optional connectors (`connect.mjs`)
+
+Connectors fetch and ingest in one step for projects that have these providers. A project without them never calls `connect.mjs` and uses exports with `ingest.mjs` instead. They are the only Analyzer7 code allowed to use the network, and they run only when invoked.
+
+| Connector | Source type / adapter | Auth (by reference) | Fetches |
+| --- | --- | --- | --- |
+| `gsc`, `gsc-latest` | search / `gsc` | `--credentials-file <service-account path>` or `--env-vars` naming one | Search Analytics with pagination and `dataState: final`; any dimensions; `--filter country=deu` |
+| `inspect` | indexation / `indexation` | same service account | URL Inspection for `--urls`, or the top N pages by clicks from ingested GSC page data |
+| `ga4` | analytics / `timeseries` | same service account, `analytics.readonly` | Data API `runReport`; `date` plus any dimensions and metrics (non-numeric dimensions stay dimensions) |
+| `crawl` | crawl / `crawl` | none | HTTP GET without following redirects (hops counted), title, meta description, canonical, robots, and sitemap membership (`--sitemap`) |
+| `psi` | performance / `cwv` | optional API key in an env var (`--auth-method api_key_env --env-vars PSI_API_KEY`) | PageSpeed Insights field data (p75 LCP, INP, CLS) |
+
+The scopes are fixed to `webmasters.readonly` and `analytics.readonly`. The service-account key is read at run time and never written: state stores only its path (`auth.credentials_file`). Every response goes through the normal ingest path, so snapshots, hashes, and freshness are identical to a manual export. A failed fetch is recorded on the source (`unavailable`) and nothing is ingested.
 
 ## Metric dictionary (`metrics.json`)
 

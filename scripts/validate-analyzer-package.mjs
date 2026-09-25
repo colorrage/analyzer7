@@ -78,17 +78,22 @@ for (const template of ['sources.json', 'metrics.json', 'monitors.json', 'seo-co
 }
 expect(read('skills/analyzer/templates/project.md').includes('authority: read_only'), 'skills/analyzer/templates/project.md: authority must default to read_only');
 
-const scripts = ['init.mjs', 'state.mjs', 'ingest.mjs', 'record.mjs', 'discover.mjs', 'analyze.mjs', 'seo.mjs', 'experiment.mjs', 'validate-state.mjs'];
+// Network access is confined to the optional connectors (connect.mjs +
+// lib/connectors.mjs); everything else stays offline.
+const NETWORK_ALLOWED = new Set(['connect.mjs', 'connectors.mjs']);
+const scripts = ['init.mjs', 'state.mjs', 'ingest.mjs', 'record.mjs', 'discover.mjs', 'analyze.mjs', 'seo.mjs', 'experiment.mjs', 'validate-state.mjs', 'connect.mjs'];
 for (const script of scripts) {
   const content = read(`skills/analyzer/scripts/${script}`);
   expect(!/from ['"](?!node:|\.\/|\.\.\/)/.test(content), `skills/analyzer/scripts/${script}: only node: built-ins and local modules are allowed`);
-  expect(!/\bfetch\(|https?\.request|node:https?['"]|node:net['"]/.test(content), `skills/analyzer/scripts/${script}: scripts make no network calls`);
+  if (!NETWORK_ALLOWED.has(script)) expect(!/\bfetch\(|https?\.request|node:https?['"]|node:net['"]/.test(content), `skills/analyzer/scripts/${script}: only the optional connectors may use the network`);
 }
 for (const entry of fs.readdirSync(path.join(root, 'skills', 'analyzer', 'scripts', 'lib'))) {
   const content = read(`skills/analyzer/scripts/lib/${entry}`);
   expect(!/from ['"](?!node:|\.\/|\.\.\/)/.test(content), `skills/analyzer/scripts/lib/${entry}: only node: built-ins and local modules are allowed`);
-  expect(!/\bfetch\(|node:https?['"]|node:net['"]/.test(content), `skills/analyzer/scripts/lib/${entry}: scripts make no network calls`);
+  if (!NETWORK_ALLOWED.has(entry)) expect(!/\bfetch\(|node:https?['"]|node:net['"]/.test(content), `skills/analyzer/scripts/lib/${entry}: only the optional connectors may use the network`);
 }
+const connectors = read('skills/analyzer/scripts/lib/connectors.mjs');
+expect(/webmasters\.readonly/.test(connectors) && /analytics\.readonly/.test(connectors) && !/auth\/webmasters['"]|auth\/analytics['"]|auth\/analytics\.edit/.test(connectors), 'lib/connectors.mjs: Google scopes must be read-only');
 // Neighbor roots are never written: proven behaviorally by tests/legacy.test.mjs
 // (tree hashes of .marketer/.signal/.hyper/.scout before and after every command).
 

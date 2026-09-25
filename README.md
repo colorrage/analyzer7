@@ -4,7 +4,7 @@ Analyzer7 is the evidence and observability harness of the 7 family. It answers 
 
 > **What actually happened, and how strong is the evidence?**
 
-It reads the data sources a project already has (Search Console, rank trackers, GA4, the application database, Stripe, crawlers, CrUX), the change records that neighbor harnesses already keep, and the experiment definitions Marketer7 already locked. It turns them into append-only evidence, where data quality, evidence strength, and causal confidence are recorded separately.
+It reads the data sources a project already has (through exports, or optional read-only connectors for Search Console, GA4, crawl, and PageSpeed) (Search Console, rank trackers, GA4, the application database, Stripe, crawlers, CrUX), the change records that neighbor harnesses already keep, and the experiment definitions Marketer7 already locked. It turns them into append-only evidence, where data quality, evidence strength, and causal confidence are recorded separately.
 
 Like its siblings it is a disk-backed Agent Skills package: markdown and JSON on disk, plus small dependency-free Node scripts. It has no server, database, daemon, or network calls of its own.
 
@@ -48,7 +48,8 @@ Signal7 / Hyper7 ──► real-world change (publish/deploy)│──► Analyz
 | SEO subsystem: overview, trends, winners/decliners, positions 4–15, low-CTR, cannibalization, content decay, rank changes, technical, CWV, indexation, SEO change impact | Shipped |
 | Ten recipes (seo-audit, seo-weekly, experiment-analysis, growth-baseline, revenue-audit, tracking-audit, monthly-business-review, ranking-monitor, content-decay, conversion-funnel) | Shipped |
 | Redaction on every write; secret scan in validation | Shipped |
-| Live API clients inside Analyzer7 | Not shipped by design: fetching stays with the provider's own tool (MCP server, export, SQL), see [FUTURE.md](FUTURE.md) |
+| Optional read-only connectors: GSC (search analytics, URL inspection), GA4, crawl, PageSpeed (`connect.mjs`) | Shipped; tested against a mock that verifies the service-account JWT, and smoke-tested live |
+| Stripe, CRM, email, and database connectors | Not shipped: use exports with `ingest.mjs` (see [FUTURE.md](FUTURE.md)) |
 
 ## Install
 

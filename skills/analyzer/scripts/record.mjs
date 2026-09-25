@@ -2,8 +2,8 @@
 // Write Analyzer7 records. Subcommands:
 //
 //   source   --id <id> --type <type> [--provider] [--property] [--adapter]
-//            [--metrics a,b] [--auth-method env|mcp|oauth|service_account_file|cli|export|none]
-//            [--auth-reference <tool or doc name>] [--env-vars NAME,NAME]
+//            [--metrics a,b] [--auth-method env|mcp|oauth|service_account_file|api_key_env|cli|export|none]
+//            [--auth-reference <tool or doc name>] [--env-vars NAME,NAME] [--credentials-file <path>]
 //            [--timezone <tz>] [--expected-lag-hours N] [--stale-after-hours N]
 //            [--limitations "a|b"] [--status configured|disabled] [--update]
 //   metric-status --id <metric> --status active|proposed|retired --reason "<why>"
@@ -31,13 +31,14 @@ function listOf(value) {
 
 const COMMANDS = {
   source(argv) {
-    const args = parseArgs(argv, {flags: ['update'], options: [...COMMON, 'id', 'type', 'provider', 'property', 'adapter', 'auth-method', 'auth-reference', 'timezone', 'expected-lag-hours', 'stale-after-hours', 'limitations', 'status'], lists: ['metrics', 'env-vars']});
+    const args = parseArgs(argv, {flags: ['update'], options: [...COMMON, 'id', 'type', 'provider', 'property', 'adapter', 'auth-method', 'auth-reference', 'credentials-file', 'timezone', 'expected-lag-hours', 'stale-after-hours', 'limitations', 'status'], lists: ['metrics', 'env-vars']});
     const root = requireInitialized(resolveProject(args.project));
     if (!args.id) throw new UsageError('source --id is required');
     const freshness = {};
     if (args.expectedLagHours !== undefined) freshness.expected_lag_hours = Number(args.expectedLagHours);
     if (args.staleAfterHours !== undefined) freshness.stale_after_hours = Number(args.staleAfterHours);
-    const auth = args.authMethod || args.authReference || args.envVars ? {method: args.authMethod ?? 'none', ...(args.authReference ? {reference: args.authReference} : {}), ...(args.envVars ? {env_vars: args.envVars} : {})} : undefined;
+    // credentials_file is a path to a key file, never the key itself.
+    const auth = args.authMethod || args.authReference || args.envVars || args.credentialsFile ? {method: args.authMethod ?? 'none', ...(args.authReference ? {reference: args.authReference} : {}), ...(args.envVars ? {env_vars: args.envVars} : {}), ...(args.credentialsFile ? {credentials_file: args.credentialsFile} : {})} : undefined;
     const source = registerSource(root, {id: args.id, type: args.type, provider: args.provider, property: args.property, adapter: args.adapter, metrics: args.metrics, timezone: args.timezone, freshness: Object.keys(freshness).length ? freshness : undefined, limitations: listOf(args.limitations), status: args.status, auth}, {update: Boolean(args.update)});
     printJson({status: args.update ? 'updated' : 'registered', source});
   },

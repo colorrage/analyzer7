@@ -14,7 +14,7 @@ export const CHANGE_TYPES = new Set(['seo_content_update', 'technical_seo_fix', 
 export const CHANGE_ORIGINS = new Set(['signal7', 'hyper7', 'marketer7', 'manual', 'deployment', 'external']);
 export const TIMESTAMP_BASES = new Set(['manual', 'publish_ledger', 'execution_result', 'deploy_log', 'commit', 'task_created', 'loop_updated', 'unknown']);
 export const SAFE_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-const AUTH_METHODS = new Set(['none', 'env', 'mcp', 'oauth', 'service_account_file', 'cli', 'export']);
+const AUTH_METHODS = new Set(['none', 'env', 'mcp', 'oauth', 'service_account_file', 'api_key_env', 'cli', 'export']);
 
 // ---------- sources ----------
 
