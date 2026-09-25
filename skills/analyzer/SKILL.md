@@ -32,8 +32,9 @@ Analyzer7 turns activity into evidence. It answers **what actually happened, and
 | periodic upkeep: refresh baselines, stale sources, open anomalies, closed windows | the `analyzer-maintain` skill |
 | measure or evaluate a Marketer7 experiment (`EX-NNN`) | the `analyzer-experiment` skill |
 | before/after comparison, "did X move Y", record or supersede evidence | the `analyzer-evidence` skill |
-| register a source, ingest an export, define or confirm a metric, compare sources | the `analyzer-source` skill |
-| record what changed and when; import Signal7/Hyper7 changes | the `analyzer-change` skill |
+| register a source, fetch with an optional connector (`connect.mjs`), ingest an export, define or confirm a metric, compare sources | the `analyzer-source` skill |
+| record what changed and when; import a change log; mark changes deployed; import Signal7/Hyper7 changes | the `analyzer-change` skill |
+| hand SEO opportunities to Marketer7, or see which exports it has consumed (`exports.mjs`) | the `analyzer-seo` skill |
 | run or manage a recipe (seo-audit, seo-weekly, experiment-analysis, …) | the `analyzer-recipe` skill |
 
 4. After any write, run `node "<skill-base-dir>/scripts/validate-state.mjs" --project <dir>`. A failure is `blocked`: report the errors and repair the artifact; do not work around the validator.
