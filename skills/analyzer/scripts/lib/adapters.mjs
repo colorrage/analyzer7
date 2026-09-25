@@ -190,28 +190,36 @@ function normalizeRankings(records, {provider, observedAt}) {
   return {rows, dimensions: ['keyword', 'location', 'device', 'engine', 'observed_at'], period: dates.length ? {start: dates[0], end: dates.at(-1)} : null};
 }
 
+// Columns other than date/metric/value that hold non-numeric values are
+// dimensions (country, device, channel …) and are kept on every row; in wide
+// files only numeric columns become metric series.
 function normalizeTimeseries(records, {metric, segment}) {
   if (records.length === 0) return {rows: [], dimensions: ['date', 'metric']};
-  const headers = Object.keys(records[0]).map((key) => key.toLowerCase());
+  const lowered = records.map((record) => Object.fromEntries(Object.entries(record).map(([key, value]) => [key.toLowerCase().replace(/\s+/g, '_'), value])));
+  const headers = Object.keys(lowered[0]);
+  const reserved = new Set(['date', 'day', 'metric', 'value', 'segment']);
+  const isDimension = (key) => lowered.some((row) => row[key] !== undefined && row[key] !== '' && number(row[key]) === null);
+  const dimensionColumns = headers.filter((key) => !reserved.has(key) && isDimension(key));
   const rows = [];
-  for (const record of records) {
-    const lower = Object.fromEntries(Object.entries(record).map(([key, value]) => [key.toLowerCase().replace(/\s+/g, '_'), value]));
+  for (const lower of lowered) {
     const date = isoDate(pick(lower, ['date', 'day']));
     if (!date) throw new UsageError('timeseries rows need a date column');
     const rowSegment = pick(lower, ['segment']) ?? segment ?? undefined;
+    const extra = {...(rowSegment ? {segment: String(rowSegment)} : {}), ...Object.fromEntries(dimensionColumns.map((key) => [key, lower[key] === undefined || lower[key] === '' ? null : String(lower[key])]))};
     if (headers.includes('metric') && headers.includes('value')) {
-      rows.push({date, metric: String(lower.metric), value: number(lower.value), ...(rowSegment ? {segment: String(rowSegment)} : {})});
+      rows.push({date, metric: String(lower.metric), value: number(lower.value), ...extra});
     } else if (headers.includes('value')) {
       if (!metric) throw new UsageError('single-value timeseries needs --metric <series name>');
-      rows.push({date, metric, value: number(lower.value), ...(rowSegment ? {segment: String(rowSegment)} : {})});
+      rows.push({date, metric, value: number(lower.value), ...extra});
     } else {
       for (const [key, value] of Object.entries(lower)) {
-        if (['date', 'day', 'segment'].includes(key)) continue;
-        rows.push({date, metric: key, value: number(value), ...(rowSegment ? {segment: String(rowSegment)} : {})});
+        if (reserved.has(key) || dimensionColumns.includes(key)) continue;
+        rows.push({date, metric: key, value: number(value), ...extra});
       }
     }
   }
-  return {rows, dimensions: rows.some((row) => row.segment) ? ['date', 'metric', 'segment'] : ['date', 'metric']};
+  const dimensions = ['date', 'metric', ...(rows.some((row) => row.segment) ? ['segment'] : []), ...dimensionColumns];
+  return {rows, dimensions};
 }
 
 function bool(value) {

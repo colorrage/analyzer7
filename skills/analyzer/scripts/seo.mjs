@@ -41,7 +41,10 @@ function healthOf(root, sourceId, now) {
 }
 
 function periods(root, args, sourceId) {
-  if (args.beforeStart && args.beforeEnd && args.afterStart && args.afterEnd) return {before: {start: args.beforeStart, end: args.beforeEnd}, after: {start: args.afterStart, end: args.afterEnd}};
+  const given = ['beforeStart', 'beforeEnd', 'afterStart', 'afterEnd'].filter((key) => args[key]);
+  // All four or none: a partial window must never fall back silently to the default one.
+  if (given.length > 0 && given.length < 4) throw new UsageError('pass all four of --before-start, --before-end, --after-start, --after-end (or none, for the default windows)');
+  if (given.length === 4) return {before: {start: args.beforeStart, end: args.beforeEnd}, after: {start: args.afterStart, end: args.afterEnd}};
   const source = getSource(root, sourceId);
   if (!source?.data_through) return null;
   const days = Number(args.days ?? 28);
@@ -55,8 +58,13 @@ function gscRows(root, sourceId, period, {require = [], exclude = []} = {}) {
   return {rows: selection.rows, snapshots: selection.snapshots};
 }
 
+// "Current" and "previous" follow the date the data describes, not when it was
+// ingested, so a backfilled older snapshot never becomes "current". (Row
+// selection elsewhere deliberately stays retrieval-ordered: a re-pull of the
+// same day supersedes the earlier pull.)
 function latestTwo(root, sourceId, kind) {
-  const snapshots = listObservations(root, {sourceId, kind});
+  const observedDate = (snapshot) => snapshot.period?.end ?? isoDate(snapshot.retrieved_at) ?? '';
+  const snapshots = [...listObservations(root, {sourceId, kind})].sort((left, right) => observedDate(left).localeCompare(observedDate(right)) || String(left.retrieved_at).localeCompare(String(right.retrieved_at)));
   return {current: snapshots.at(-1) ?? null, previous: snapshots.at(-2) ?? null};
 }
 
@@ -231,7 +239,8 @@ function movementLine(kind, name, row) {
 function trendLines(overview, period) {
   const {before, after} = lengths(period);
   const perDay = (value, days) => Math.round((value / days) * 10) / 10;
-  const change = (b, a) => `${a >= b ? '+' : ''}${Math.round(((a - b) / b) * 1000) / 10}%`;
+  // No baseline volume means no percentage: say so instead of printing Infinity/NaN.
+  const change = (b, a) => (b > 0 ? `${a >= b ? '+' : ''}${Math.round(((a - b) / b) * 1000) / 10}%` : a > 0 ? 'new (no baseline volume)' : 'no volume in either window');
   return [
     `Clicks ${overview.before.clicks} (${before} d, ${perDay(overview.before.clicks, before)}/day) → ${overview.after.clicks} (${after} d, ${perDay(overview.after.clicks, after)}/day): ${change(overview.before.clicks / before, overview.after.clicks / after)} per day.`,
     `Impressions ${overview.before.impressions} (${perDay(overview.before.impressions, before)}/day) → ${overview.after.impressions} (${perDay(overview.after.impressions, after)}/day): ${change(overview.before.impressions / before, overview.after.impressions / after)} per day.`,

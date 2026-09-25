@@ -225,3 +225,48 @@ test('monitor: count collapse from a reliable baseline alerts; small-denominator
   assert.equal(ratio.checks.sample, false, 'a 7-visit current window cannot support a conversion-rate alert');
   assert.equal(ratio.outcome, 'quiet');
 });
+
+test('seo audit: a partial date window is a usage error, never a silent fallback', () => {
+  const directory = tempDir();
+  run('init.mjs', ['--project', directory, '--seed', 'seo', '--now', NOW]);
+  run('record.mjs', ['source', '--project', directory, '--id', 'gsc', '--type', 'search', '--adapter', 'gsc', '--auth-method', 'mcp', '--now', NOW]);
+  const failed = run('seo.mjs', ['audit', '--project', directory, '--before-start', '2026-08-01', '--before-end', '2026-08-28', '--now', NOW], {expectFail: true});
+  assert.equal(failed.status, 2);
+  assert.match(failed.stderr, /pass all four/);
+});
+
+test('seo report: zero baseline volume never prints Infinity or NaN', () => {
+  const directory = tempDir();
+  run('init.mjs', ['--project', directory, '--seed', 'seo', '--now', NOW]);
+  run('record.mjs', ['source', '--project', directory, '--id', 'gsc', '--type', 'search', '--adapter', 'gsc', '--auth-method', 'mcp', '--now', NOW]);
+  const file = writeCsv(path.join(directory, 'site.csv'), 'date,clicks,impressions,ctr,position', eightWeeks.map((date, index) => `${date},${index < 28 ? 0 : 5},${index < 28 ? 0 : 100},0,8`));
+  run('ingest.mjs', ['--project', directory, '--source', 'gsc', '--input', file, '--now', NOW]);
+  const result = run('seo.mjs', ['audit', '--project', directory, '--before-start', '2026-08-01', '--before-end', '2026-08-28', '--after-start', '2026-08-29', '--after-end', '2026-09-25', '--report', '--now', NOW]);
+  const report = fs.readFileSync(path.join(directory, result.report), 'utf8');
+  assert.doesNotMatch(report, /Infinity|NaN/);
+  assert.match(report, /new \(no baseline volume\)/);
+});
+
+test('rank changes follow the observed date, so a backfilled older snapshot is "previous"', () => {
+  const directory = tempDir();
+  run('init.mjs', ['--project', directory, '--now', NOW]);
+  run('record.mjs', ['source', '--project', directory, '--id', 'rankings', '--type', 'ranking', '--adapter', 'rankings', '--auth-method', 'export', '--stale-after-hours', '720', '--now', NOW]);
+  const later = writeCsv(path.join(directory, 'later.csv'), 'keyword,position,observed_at', ['cmr pdf,5,2026-09-15T06:00:00Z']);
+  const earlier = writeCsv(path.join(directory, 'earlier.csv'), 'keyword,position,observed_at', ['cmr pdf,20,2026-09-01T06:00:00Z']);
+  run('ingest.mjs', ['--project', directory, '--source', 'rankings', '--input', later, '--retrieved-at', '2026-09-15T07:00:00Z', '--now', NOW]);
+  run('ingest.mjs', ['--project', directory, '--source', 'rankings', '--input', earlier, '--retrieved-at', '2026-09-20T07:00:00Z', '--now', NOW]);
+  const change = run('seo.mjs', ['rankings', '--project', directory, '--source', 'rankings', '--now', NOW]).rankings.changes[0];
+  assert.equal(change.previous_position, 20);
+  assert.equal(change.current_position, 5);
+  assert.equal(change.movement, 'big_win', 'the backfill must not invert the timeline');
+});
+
+test('timeseries: non-numeric columns are dimensions, not phantom metrics', () => {
+  const directory = project([{id: 'revenue', kind: 'count', aggregation: 'sum', series: 'revenue'}]);
+  const result = ingest(directory, 'wide', 'date,country,device,revenue,signups', eightWeeks.flatMap((date) => [`${date},RO,mobile,100,3`, `${date},DE,desktop,50,1`]));
+  assert.deepEqual(result.dimensions, ['date', 'metric', 'country', 'device']);
+  const snapshot = JSON.parse(fs.readFileSync(path.join(directory, result.observation), 'utf8'));
+  assert.deepEqual([...new Set(snapshot.rows.map((row) => row.metric))].sort(), ['revenue', 'signups']);
+  assert.equal(compare(directory, 'revenue').analysis.comparison.before.value, 4200);
+  assert.equal(compare(directory, 'revenue', ['--country', 'RO']).analysis.comparison.before.value, 2800);
+});
