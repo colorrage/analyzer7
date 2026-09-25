@@ -35,6 +35,7 @@ Rank-tracker exports go through the `rankings` adapter; crawler exports through 
 | rankings movement | `seo.mjs rankings --source <id> [--record]` (stale snapshots are flagged explicitly) |
 | technical / CWV / indexation | `seo.mjs technical\|cwv\|indexation --source <id>` |
 | did the SEO change work | the `analyzer-experiment` skill (Marketer7 `EX-NNN`) or the `analyzer-evidence` skill (ad-hoc, linked to a `CH-NNN`) |
+| hand opportunities to Marketer7 | `exports.mjs opportunities --top 5` (writes `analyzer-opportunity/v1`, marks them `handed_off`); `exports.mjs list` shows what Marketer7 has consumed |
 | save a baseline | `record.mjs baseline --metric organic_clicks\|organic_ctr\|... --start --end [--page /x]` |
 
 All commands live in `"<skill-base-dir>/../analyzer/scripts/"` and take `--project <dir>`.

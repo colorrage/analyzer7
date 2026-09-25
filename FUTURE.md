@@ -14,9 +14,9 @@ Status: partial. Difference-in-differences against untouched control pages and y
 
 Status: supported on the Analyzer7 side. Analyzer7 reads an optional `deployed_at` from Hyper7 task and loop frontmatter, and `deployed_at`/`live_at` from Signal7 ledger rows. Hyper7 and Signal7 do not write those fields yet; until they do, use `record.mjs import-changes` or `record.mjs deploy`.
 
-## Marketer7 import helper
+## Marketer7 import automation
 
-Status: deferred. Marketer7 copies the exported `external-evidence-reference/v1` into its experiment `contracts/`. A Marketer7-side helper that lists pending Analyzer7 exports would remove the manual copy. It belongs in Marketer7, not here, because Analyzer7 never writes `.marketer/`.
+Status: partial. `analyzer-opportunity/v1` exports, `exports.mjs list`, and Marketer7's read-only `scripts/list-analyzer-exports.mjs` ship. The copy into `contracts/` and the backlog entry stay deliberate Marketer7 actions; automating them would be a Marketer7 decision.
 
 ## Business7 summaries
 

@@ -81,7 +81,7 @@ expect(read('skills/analyzer/templates/project.md').includes('authority: read_on
 // Network access is confined to the optional connectors (connect.mjs +
 // lib/connectors.mjs); everything else stays offline.
 const NETWORK_ALLOWED = new Set(['connect.mjs', 'connectors.mjs']);
-const scripts = ['init.mjs', 'state.mjs', 'ingest.mjs', 'record.mjs', 'discover.mjs', 'analyze.mjs', 'seo.mjs', 'experiment.mjs', 'validate-state.mjs', 'connect.mjs'];
+const scripts = ['init.mjs', 'state.mjs', 'ingest.mjs', 'record.mjs', 'discover.mjs', 'analyze.mjs', 'seo.mjs', 'experiment.mjs', 'validate-state.mjs', 'connect.mjs', 'exports.mjs'];
 for (const script of scripts) {
   const content = read(`skills/analyzer/scripts/${script}`);
   expect(!/from ['"](?!node:|\.\/|\.\.\/)/.test(content), `skills/analyzer/scripts/${script}: only node: built-ins and local modules are allowed`);

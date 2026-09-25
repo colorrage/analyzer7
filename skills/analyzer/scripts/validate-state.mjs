@@ -197,8 +197,9 @@ export function validateAnalyzerState(root) {
   for (const file of walk(path.join(root, 'exports')).filter((name) => name.endsWith('.md'))) {
     const document = parseFrontmatter(readText(file));
     if (!check(!document.error, `${label(file)}: ${document.error}`)) continue;
-    check(document.data.contract === 'external-evidence-reference/v1', `${label(file)}: unsupported contract ${document.data.contract}`);
-    check(ids.evidence.has(document.data.external_evidence_id), `${label(file)}: ${document.data.external_evidence_id} does not exist`);
+    check(['external-evidence-reference/v1', 'analyzer-opportunity/v1'].includes(document.data.contract), `${label(file)}: unsupported contract ${document.data.contract}`);
+    if (document.data.contract === 'external-evidence-reference/v1') check(ids.evidence.has(document.data.external_evidence_id), `${label(file)}: ${document.data.external_evidence_id} does not exist`);
+    if (document.data.contract === 'analyzer-opportunity/v1') check(ids.opportunity.has(document.data.opportunity_id), `${label(file)}: ${document.data.opportunity_id} does not exist`);
   }
 
   for (const file of walk(root)) {

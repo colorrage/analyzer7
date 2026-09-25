@@ -74,3 +74,58 @@ export function writeExternalReference(project, evidenceId, {now, experimentId =
   writeNew(target, renderDocument(data, body));
   return {path: target, relative: relative(project, target), contract: EXTERNAL_REFERENCE_CONTRACT};
 }
+
+// Outgoing contract: `analyzer-opportunity/v1` — an SEO opportunity handed to
+// Marketer7 as a backlog candidate. Marketer7 decides whether it becomes an
+// experiment; Analyzer7 never writes `.marketer/`. Flat frontmatter only.
+export const OPPORTUNITY_CONTRACT = 'analyzer-opportunity/v1';
+
+export function writeOpportunityExport(project, opportunityId, {now}) {
+  const root = stateRoot(project);
+  const record = findRecord(root, 'opportunity', opportunityId);
+  if (!record) throw new UsageError(`${opportunityId} not found`);
+  const data = record.data;
+  const artifact = relative(project, record.path);
+  const gain = data.estimated_click_gain_28d ?? data.estimated_click_loss_28d ?? null;
+  const reference = `analyzer7:${data.id}`;
+  const idea = `${data.type.replace(/_/g, ' ')}: ${data.query ? `"${data.query}" on ` : ''}${data.page ?? 'site-wide'}`.replace(/\|/g, '/');
+  const why = gain !== null ? `~${gain} clicks / 28 days estimated (${data.estimated_click_gain_28d !== undefined && data.estimated_click_gain_28d !== null ? 'CTR gap' : 'lost clicks'}); an estimate, not a forecast` : data.upside_if_top3_28d ? `hypothetical ~${data.upside_if_top3_28d} clicks / 28 days at about position 3` : data.contested_impressions ? `${data.contested_impressions} impressions contested between URLs` : 'see the canonical artifact';
+  const frontmatter = {
+    schema_version: 1,
+    contract: OPPORTUNITY_CONTRACT,
+    provider: 'analyzer7',
+    opportunity_id: data.id,
+    reference,
+    type: data.type,
+    query: data.query ?? 'none',
+    page: data.page ?? 'none',
+    estimated_clicks_28d: gain ?? 'unknown',
+    suggested_owner: data.suggested_owner ?? 'marketer7',
+    detected_at: data.detected_at,
+    period_start: data.period_start ?? 'unknown',
+    period_end: data.period_end ?? 'unknown',
+    external_artifact: artifact,
+    exported_at: now,
+  };
+  const body = [
+    `# Analyzer7 opportunity — ${data.id}`,
+    '',
+    '## Evidence',
+    '',
+    `${data.title}. Canonical record: \`${artifact}\` (evidence tables, rule, provenance).`,
+    '',
+    '## Suggested Marketer7 backlog row',
+    '',
+    '| ID | Idea | Why it may matter | Evidence | Status |',
+    '| --- | --- | --- | --- | --- |',
+    `| B-<next> | ${idea} | ${why.replace(/\|/g, '/')} | ${reference} (${artifact}) | open |`,
+    '',
+    '## Boundary',
+    '',
+    'Analyzer7 flags and measures. Marketer7 decides whether to test this (and defines any experiment); Signal7 executes content or meta changes and Hyper7 technical ones; Analyzer7 measures the result. This file is a hand-off, not an instruction to change the site.',
+    '',
+  ].join('\n');
+  const target = uniquePath(path.join(root, 'exports', 'opportunities', `${data.id}-analyzer-opportunity.md`));
+  writeNew(target, renderDocument(frontmatter, body));
+  return {path: target, relative: relative(project, target), contract: OPPORTUNITY_CONTRACT};
+}

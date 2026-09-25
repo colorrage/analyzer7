@@ -145,7 +145,7 @@ Rank tracking is a separate observation kind (`keyword × location × device × 
 
 | Neighbor | Analyzer7 reads | Analyzer7 produces |
 | --- | --- | --- |
-| Marketer7 | `EX-NNN` definitions, status, review fingerprint (same algorithm as Marketer7's validator) | `external-evidence-reference/v1` in `.analyzer/exports/`, for Marketer7 to cite |
+| Marketer7 | `EX-NNN` definitions, status, review fingerprint (same algorithm as Marketer7's validator), backlog and contracts (to track consumption) | `external-evidence-reference/v1` for measured experiments and `analyzer-opportunity/v1` backlog candidates, in `.analyzer/exports/`; `exports.mjs list` and Marketer7's `list-analyzer-exports.mjs` show what is pending |
 | Signal7 | publish ledger, `signal7-execution-result/v1`, asset metadata | CH records (`origin_ref: signal7:S<N>/A<N>`), idempotent |
 | Hyper7 | finished tasks and closed loops (opt-in) | unconfirmed CH records; technical SEO-OPPs with Hyper7 as owner |
 | Scout7 | batches | external-context references (minor confounders) |
