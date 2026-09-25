@@ -5,7 +5,9 @@ import path from 'node:path';
 import {UsageError, isoDate, listDir, readDocument, readJson, readMaybeGzipJson, writeJson} from './core.mjs';
 
 export const SOURCE_TYPES = new Set(['analytics', 'search', 'revenue', 'product', 'ranking', 'performance', 'crawl', 'indexation', 'crm', 'email', 'social', 'logs', 'harness', 'custom']);
-export const OBSERVATION_KINDS = new Set(['gsc_rows', 'timeseries', 'rankings', 'crawl', 'cwv', 'indexation']);
+export const OBSERVATION_KINDS = new Set(['gsc_rows', 'timeseries', 'rankings', 'crawl', 'cwv', 'indexation', 'behavior']);
+// Only these kinds can supply metric values for evidence.
+export const METRIC_KINDS = new Set(['gsc_rows', 'timeseries']);
 
 export function loadProject(root) {
   const document = readDocument(path.join(root, 'project.md'));

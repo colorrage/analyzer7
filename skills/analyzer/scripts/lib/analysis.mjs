@@ -8,7 +8,7 @@ import {differenceInDifferences, lastYear, scopedRows, selectControlPages} from 
 import {ADAPTERS} from './adapters.mjs';
 import {causalConfidence, classifyChanges, confounders, evidenceStrength} from './confidence.mjs';
 import {checkBoundaryZero, checkComparability, checkPeriodRows, checkSample, checkSuddenZero, checkTimezone, checkTrackingChanges, discrepancy, healthIssues, issue, levelFromIssues, sourceHealth} from './quality.mjs';
-import {getMetric, getSource, loadProject, loadSeoConfig, selectRows} from './state.mjs';
+import {METRIC_KINDS, getMetric, getSource, loadProject, loadSeoConfig, selectRows} from './state.mjs';
 import {aggregate, comparePeriods, dailyValues, filterRows, meetsThreshold, parseThreshold, resolveMapping} from './stats.mjs';
 import {totals} from './seo.mjs';
 
@@ -34,6 +34,12 @@ export function measurePeriod(root, {metric, sourceId, period, scope, label, pro
   if (!source || !kind) {
     if (source && !kind) issues.push(issue('adapter_unknown', 'blocking', `${sourceId}: adapter ${source.adapter} is not a known Analyzer7 adapter`));
     return {source_id: sourceId, health, issues, rows: [], snapshots: [], value: null, kind};
+  }
+  // Rankings, crawls, CWV, indexation, and behavior are diagnostics or
+  // context, not metric sources: they can never supply an evidence value.
+  if (!METRIC_KINDS.has(kind)) {
+    issues.push(issue('not_a_metric_source', 'blocking', `${sourceId} holds ${kind} observations, which are diagnostics or context and cannot supply a value for ${metric.id}`));
+    return {source_id: sourceId, health, issues, rows: [], snapshots: [], value: null, kind: null};
   }
   // Scoped reads need the scope dimension; property-level reads prefer a
   // headline-safe grain (no query/page) and fall back only when none exists.

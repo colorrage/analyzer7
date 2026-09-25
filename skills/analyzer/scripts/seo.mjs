@@ -11,11 +11,11 @@
 //             [--source gsc] [--dimensions query|page|query,page]
 //   rank-proxy --into <ranking source> [--source gsc] [--window-days 7] [--min-impressions 30]
 //             [--top-queries 100 | --queries a,b]   (optional GSC average-position proxy)
-//   technical --source <id>        cwv --source <id>        indexation --source <id>
+//   technical --source <id>   cwv --source <id>   indexation --source <id>   behavior --source <clarity id>
 //
 // Common: [--project <dir>] [--now <ISO>]. Output: one JSON object.
 
-import {UsageError, addDays, isoDate, listRecords, nowIso, parseArgs, parseTimestamp, printJson, requireInitialized, resolveProject, runCli, toCsv, writeExport} from './lib/core.mjs';
+import {UsageError, addDays, isoDate, listRecords, normalizePage, nowIso, parseArgs, parseTimestamp, printJson, requireInitialized, resolveProject, runCli, toCsv, writeExport} from './lib/core.mjs';
 import {readScout} from './lib/neighbors.mjs';
 import {sourceHealth} from './lib/quality.mjs';
 import {createAnomaly, createOpportunity} from './lib/records.mjs';
@@ -78,19 +78,23 @@ function gatherRankings(root, sourceId, config) {
 }
 
 function audit(argv) {
-  const {args, project, root, now} = context(argv, {flags: ['record', 'report'], options: [...COMMON, 'source', 'rankings-source', 'crawl-source', 'cwv-source', 'index-source', 'days', 'before-start', 'before-end', 'after-start', 'after-end', 'segment-key']});
+  const {args, project, root, now} = context(argv, {flags: ['record', 'report'], options: [...COMMON, 'source', 'rankings-source', 'crawl-source', 'cwv-source', 'index-source', 'behavior-source', 'days', 'before-start', 'before-end', 'after-start', 'after-end', 'segment-key']});
   const config = loadSeoConfig(root);
   const gsc = args.source ?? firstSourceOfType(root, 'search');
   const rankingsSource = args.rankingsSource ?? firstSourceOfType(root, 'ranking');
   const crawlSource = args.crawlSource ?? firstSourceOfType(root, 'crawl');
   const cwvSource = args.cwvSource ?? firstSourceOfType(root, 'performance');
   const indexSource = args.indexSource ?? firstSourceOfType(root, 'indexation');
+  const behaviorSource = args.behaviorSource ?? loadSources(root).sources.find((source) => source.adapter === 'clarity')?.id ?? null;
   const gaps = [];
   const availability = [];
-  for (const [label, sourceId] of [['Search Console', gsc], ['Rankings', rankingsSource], ['Crawl', crawlSource], ['Core Web Vitals', cwvSource], ['Indexation', indexSource]]) {
+  // Rankings and behavior are optional: not every project has a rank tracker
+  // or Clarity, so their absence is noted, not reported as a data gap.
+  const OPTIONAL = new Set(['Rankings', 'Behavior (Clarity)']);
+  for (const [label, sourceId] of [['Search Console', gsc], ['Rankings', rankingsSource], ['Crawl', crawlSource], ['Core Web Vitals', cwvSource], ['Indexation', indexSource], ['Behavior (Clarity)', behaviorSource]]) {
     if (!sourceId) {
-      availability.push({label, source_id: null, health: 'not_configured'});
-      gaps.push(`${label}: no source registered — the related sections cannot be evaluated`);
+      availability.push({label, source_id: null, health: OPTIONAL.has(label) ? 'not_configured (optional)' : 'not_configured'});
+      if (!OPTIONAL.has(label)) gaps.push(`${label}: no source registered — the related sections cannot be evaluated`);
       continue;
     }
     const health = healthOf(root, sourceId, now);
@@ -169,6 +173,11 @@ function audit(argv) {
   } else {
     result.indexation = {note: 'No indexation source: Analyzer7 cannot prove index status for any URL.'};
   }
+  if (behaviorSource) {
+    const {current} = latestTwo(root, behaviorSource, 'behavior');
+    if (current) result.behavior = behaviorContext(current, result);
+    else gaps.push(`Behavior (${behaviorSource}): registered but no Clarity snapshot`);
+  }
   const since = window?.before.start ?? addDays(isoDate(now), -56);
   result.recent_seo_changes = listRecords(root, 'change').filter((change) => SEO_CHANGE_TYPES.has(change.data.type) && (isoDate(change.data.timestamp) ?? '') >= since).map((change) => ({id: change.data.id, timestamp: change.data.timestamp, type: change.data.type, title: change.data.title, pages: change.data.pages}));
   const scout = readScout(project);
@@ -178,6 +187,28 @@ function audit(argv) {
   if (args.record) result.recorded = recordFindings(root, result, now, config);
   if (args.report) result.report = writeSeoReport(project, result, now).relative;
   printJson(result);
+}
+
+// Clarity rows for the pages the audit points at (top pages and opportunity
+// pages), sessions-weighted across devices. Context only.
+function behaviorContext(snapshot, result) {
+  const pages = [...new Set([...(result.top_pages ?? []).map((row) => row.page), ...(result.ctr_opportunities ?? []).map((row) => row.page), ...(result.content_decay ?? []).map((row) => row.page)].filter(Boolean))];
+  const byPage = new Map();
+  for (const row of snapshot.rows) {
+    const page = normalizePage(row.url);
+    if (!byPage.has(page)) byPage.set(page, []);
+    byPage.get(page).push(row);
+  }
+  const weighted = (rows, field) => {
+    const usable = rows.filter((row) => row[field] !== null && row[field] !== undefined);
+    const sessions = usable.reduce((total, row) => total + (row.sessions ?? 0), 0);
+    return usable.length ? Math.round((sessions ? usable.reduce((total, row) => total + row[field] * (row.sessions ?? 0), 0) / sessions : usable.reduce((total, row) => total + row[field], 0) / usable.length) * 10) / 10 : null;
+  };
+  const rows = pages.filter((page) => byPage.has(page)).map((page) => {
+    const group = byPage.get(page);
+    return {page, sessions: group.reduce((total, row) => total + (row.sessions ?? 0), 0), dead_click_pct: weighted(group, 'dead_click_pct'), rage_click_pct: weighted(group, 'rage_click_pct'), quickback_pct: weighted(group, 'quickback_pct'), scroll_depth_pct: weighted(group, 'scroll_depth_pct')};
+  });
+  return {file: snapshot.file, period: snapshot.period, rows, missing_pages: pages.filter((page) => !byPage.has(page)), note: 'Behavioral context from Microsoft Clarity: it can suggest why a page under-performs, but it is never evidence for a metric and never changes a confidence level.'};
 }
 
 // One list across types, by estimated clicks per 28 days. Striking-distance
@@ -293,8 +324,9 @@ function writeSeoReport(project, result, now) {
     {title: 'Technical SEO', lines: result.technical ? [`Summary: ${Object.entries(result.technical.summary).map(([key, value]) => `${key} ${value}`).join(', ') || 'no findings'}`, ...result.technical.findings.map((finding) => `- ${finding.code}: ${finding.url} — ${finding.message}`)] : ['DATA GAP — no crawl snapshot.']},
     {title: 'CWV/performance issues', lines: result.cwv ? [...result.cwv.regressions.map((row) => `- regression: ${row.url} ${row.metric} ${row.previous} → ${row.current} (${row.previous_status} → ${row.status})`), ...result.cwv.poor.map((page) => `- poor: ${page.url} (${page.form_factor})`), ...(result.cwv.regressions.length || result.cwv.poor.length ? [] : ['No regressions or poor pages in the snapshot.'])] : ['DATA GAP — no Core Web Vitals snapshot.']},
     {title: 'Ranking changes', lines: result.ranking_changes ? [`Summary: ${Object.entries(result.ranking_changes.summary).map(([key, value]) => `${key} ${value}`).join(', ')} (${result.ranking_changes.previous_file ?? 'no previous'} → ${result.ranking_changes.current_file})`, ...result.ranking_changes.changes.map((row) => `- \`${row.keyword}\` ${row.location}/${row.device}: ${row.previous_position ?? '—'} → ${row.current_position ?? '—'} (${row.movement})${row.url_changed ? ' — ranking URL switched' : ''}${row.alert ? ' — ALERT' : ''}`)] : ['DATA GAP — no rank-tracker source.']},
+    {title: 'Behavior context (Clarity, optional)', lines: result.behavior ? [...table(['Page', 'Sessions', 'Dead click %', 'Rage click %', 'Quick-back %', 'Scroll depth %'], result.behavior.rows.map((row) => [row.page, row.sessions, row.dead_click_pct ?? '—', row.rage_click_pct ?? '—', row.quickback_pct ?? '—', row.scroll_depth_pct ?? '—'])), '', `${result.behavior.note} Snapshot ${result.behavior.file} (${result.behavior.period?.start} → ${result.behavior.period?.end}).`] : ['Not configured (optional).']},
     {title: 'Recent SEO-related changes', lines: result.recent_seo_changes.map((change) => `- ${change.id} ${change.timestamp ?? 'unknown time'} ${change.type}: ${change.title}`)},
-    {title: 'Potential confounders', lines: [...result.recent_seo_changes.map((change) => `- ${change.id} lands inside the compared windows`), ...result.external_context.map((entry) => `- ${entry.ref} (${entry.title}, opened ${entry.opened}) — external context from Scout7`), ...result.availability.filter((entry) => entry.health && !['ok', 'not_configured'].includes(entry.health)).map((entry) => `- ${entry.label}: ${entry.warning}`)]},
+    {title: 'Potential confounders', lines: [...result.recent_seo_changes.map((change) => `- ${change.id} lands inside the compared windows`), ...result.external_context.map((entry) => `- ${entry.ref} (${entry.title}, opened ${entry.opened}) — external context from Scout7`), ...result.availability.filter((entry) => entry.health && entry.warning && !String(entry.health).startsWith('not_configured') && entry.health !== 'ok').map((entry) => `- ${entry.label}: ${entry.warning}`)]},
     {title: 'Evidence-backed opportunities', lines: result.recorded ? result.recorded.map((entry) => `- ${entry.id} (${entry.type}) — ${entry.status}`) : ['Run with --record to register opportunities as SEO-OPP records for Marketer7 review.']},
     {title: 'Data gaps', lines: result.data_gaps.map((gap) => `- ${gap}`)},
   ];
@@ -377,6 +409,7 @@ function main(argv) {
     rankings,
     'rank-proxy': rankProxy,
     compare,
+    behavior: single('behavior', (current) => ({rows: current.rows, note: 'behavioral context only; never evidence'})),
     technical: single('crawl', (current) => seo.technicalFindings(current.rows)),
     cwv: single('cwv', (current, previous) => seo.cwvFindings(current.rows, previous?.rows ?? [])),
     indexation: single('indexation', (current) => seo.indexationSummary(current.rows)),

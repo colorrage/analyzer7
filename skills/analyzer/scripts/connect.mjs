@@ -10,12 +10,13 @@
 //   ga4         --source <id> --start --end --dimensions date[,sessionDefaultChannelGroup,...] --metrics sessions,keyEvents
 //   crawl       --source <crawl id> --urls a,b | --top-pages N --pages-source <gsc id> --since <date> [--sitemap <url>]
 //   psi         --source <performance id> --urls a,b | --top-pages N --pages-source <gsc id> --since <date>
+//   clarity     --source <clarity id> [--days 1-3] [--dimensions URL,Device]   (optional; token from an env var)
 //
 // Common: [--project <dir>] [--now <ISO>]. A failure is recorded on the source
 // (health: unavailable) and exits non-zero; nothing is estimated.
 
-import {UsageError, isoDate, nowIso, parseArgs, printJson, requireInitialized, resolveProject} from './lib/core.mjs';
-import {crawl, ga4Report, gscInspect, gscLatestFinalDate, gscSearchAnalytics, pagespeed, toCsv, writeExport} from './lib/connectors.mjs';
+import {UsageError, addDays, isoDate, nowIso, parseArgs, printJson, requireInitialized, resolveProject} from './lib/core.mjs';
+import {clarityInsights, crawl, ga4Report, gscInspect, gscLatestFinalDate, gscSearchAnalytics, pagespeed, toCsv, writeExport} from './lib/connectors.mjs';
 import {ingestFile, recordFailure} from './lib/ingest.mjs';
 import {getSource, selectRows} from './lib/state.mjs';
 
@@ -82,6 +83,15 @@ const COMMANDS = {
     return ingestFile(root, project, source.id, {input: file}, now);
   },
 
+  async clarity(argv) {
+    const {args, project, root, source, now} = context(argv, {options: [...COMMON, 'days'], lists: ['dimensions']});
+    const days = Number(args.days ?? 3);
+    const response = await clarityInsights(source, {days, dimensions: args.dimensions ?? ['URL', 'Device']});
+    const file = writeExport(`clarity-${days}d.json`, response);
+    const today = isoDate(now);
+    return ingestFile(root, project, source.id, {input: file, start: addDays(today, -(days - 1)), end: today}, now);
+  },
+
   async psi(argv) {
     const {args, project, root, source, now} = context(argv, {options: [...COMMON, 'top-pages', 'pages-source', 'since'], lists: ['urls']});
     const {rows, failures} = await pagespeed(source, targetUrls(root, args));
@@ -99,7 +109,7 @@ async function main() {
   } catch (error) {
     if (error instanceof UsageError) throw error;
     // Record the failure on the source so health shows it; never fall back to stale data silently.
-    const args = parseArgs(rest, {options: ['project', 'now', 'source', 'start', 'end', 'data-state', 'top-pages', 'pages-source', 'since', 'sitemap'], lists: ['dimensions', 'filter', 'metrics', 'urls']});
+    const args = parseArgs(rest, {options: ['project', 'now', 'source', 'start', 'end', 'data-state', 'top-pages', 'pages-source', 'since', 'sitemap', 'days'], lists: ['dimensions', 'filter', 'metrics', 'urls']});
     const project = resolveProject(args.project);
     const root = requireInitialized(project);
     if (args.source && getSource(root, args.source) && command !== 'gsc-latest') printJson(recordFailure(root, args.source, `${command}: ${error.message}`, nowIso(args.now)));

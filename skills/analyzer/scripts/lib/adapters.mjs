@@ -17,6 +17,7 @@ export const ADAPTERS = {
   crawl: {kind: 'crawl', version: 1, description: 'Crawler page rows (status, redirects, canonical, titles, robots, sitemap, inlinks)'},
   cwv: {kind: 'cwv', version: 1, description: 'Core Web Vitals p75 rows (CrUX / PageSpeed)'},
   indexation: {kind: 'indexation', version: 1, description: 'Index coverage / URL inspection rows'},
+  clarity: {kind: 'behavior', version: 1, description: 'Microsoft Clarity behavioral metrics per URL/device (Data Export API JSON or CSV) — context only, never evidence'},
 };
 
 function number(value) {
@@ -306,6 +307,52 @@ function normalizeIndexation(records) {
   return {rows, dimensions: ['url']};
 }
 
+// Clarity Data Export API: [{metricName, information: [{URL, Device, ...}]}].
+// Rows are merged per URL × device; values are percentages of sessions
+// unless stated. Behavioral context only.
+const CLARITY_METRICS = {
+  deadclickcount: 'dead_click_pct',
+  rageclickcount: 'rage_click_pct',
+  quickbackclick: 'quickback_pct',
+  excessivescroll: 'excessive_scroll_pct',
+  errorclickcount: 'error_click_pct',
+  scripterrorcount: 'script_error_pct',
+};
+
+function lowerKeys(record) {
+  return Object.fromEntries(Object.entries(record).map(([key, value]) => [key.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''), value]));
+}
+
+function normalizeClarity(text, extension) {
+  const byKey = new Map();
+  const row = (url, device) => {
+    const key = `${url}\u0000${device}`;
+    if (!byKey.has(key)) byKey.set(key, {url, device, sessions: null, dead_click_pct: null, rage_click_pct: null, quickback_pct: null, excessive_scroll_pct: null, error_click_pct: null, script_error_pct: null, scroll_depth_pct: null, active_time_s: null});
+    return byKey.get(key);
+  };
+  if (extension === '.csv') {
+    for (const record of parseCsv(text).map(lowerKeys)) {
+      const target = row(String(record.url ?? record.page ?? 'all'), String(record.device ?? 'all').toLowerCase());
+      for (const field of Object.keys(target)) if (!['url', 'device'].includes(field) && record[field] !== undefined) target[field] = number(record[field]);
+    }
+  } else {
+    const parsed = JSON.parse(text);
+    const blocks = Array.isArray(parsed) ? parsed : parsed.data ?? parsed.results ?? [];
+    for (const block of blocks) {
+      const name = String(block.metricName ?? block.metric_name ?? '').toLowerCase().replace(/[^a-z]/g, '');
+      for (const raw of block.information ?? []) {
+        const record = lowerKeys(raw);
+        const target = row(String(record.url ?? 'all'), String(record.device ?? 'all').toLowerCase());
+        if (name === 'traffic') target.sessions = number(record.totalsessioncount ?? record.total_session_count);
+        else if (name === 'scrolldepth') target.scroll_depth_pct = number(record.averagescrolldepth ?? record.average_scroll_depth);
+        else if (name === 'engagementtime') target.active_time_s = number(record.activetime ?? record.active_time);
+        else if (CLARITY_METRICS[name]) target[CLARITY_METRICS[name]] = number(record.sessionswithmetricpercentage ?? record.sessions_with_metric_percentage);
+      }
+    }
+  }
+  return {rows: [...byKey.values()], dimensions: ['url', 'device'], warnings: ['behavioral context from Microsoft Clarity: never used as evidence for a metric']};
+}
+
 // Build a snapshot object from an input file.
 export function normalizeInput({adapter, inputPath, sourceId, property, dimensions, start, end, metric, segment, provider, observedAt, set = {}, segmentMap = {}, retrievedAt}) {
   const definition = ADAPTERS[adapter];
@@ -314,6 +361,8 @@ export function normalizeInput({adapter, inputPath, sourceId, property, dimensio
   let normalized;
   if (adapter === 'seo-rankings-md') {
     normalized = normalizeSeoRankingsMarkdown(text, segmentMap);
+  } else if (adapter === 'clarity') {
+    normalized = normalizeClarity(text, path.extname(inputPath).toLowerCase());
   } else {
     if (!records) throw new UsageError(`adapter ${adapter} reads .json or .csv input, got ${path.basename(inputPath)}`);
     normalized = {

@@ -35,6 +35,7 @@ Rank-tracker exports go through the `rankings` adapter; crawler exports through 
 | rankings movement | `seo.mjs rankings --source <id> [--record]` (stale snapshots are flagged explicitly) |
 | no rank tracker (optional proxy) | pull GSC `--dimensions date,query[,country]`, register a `ranking` source (`--provider gsc_avg_position_proxy`), then `seo.mjs rank-proxy --into <id>`: impression-weighted average position per query for the latest window and the one before, labeled as a proxy |
 | technical / CWV / indexation | `seo.mjs technical\|cwv\|indexation --source <id>` |
+| behavior context (optional, Clarity) | register a source with `--adapter clarity`, fetch with `connect.mjs clarity` or ingest an export; the audit adds a "Behavior context" section (dead/rage clicks, scroll depth) for top and opportunity pages. It is context only, never evidence |
 | did the SEO change work | the `analyzer-experiment` skill (Marketer7 `EX-NNN`) or the `analyzer-evidence` skill (ad-hoc, linked to a `CH-NNN`) |
 | hand opportunities to Marketer7 | `exports.mjs opportunities --top 5` (writes `analyzer-opportunity/v1`, marks them `handed_off`); `exports.mjs list` shows what Marketer7 has consumed |
 | save a baseline | `record.mjs baseline --metric organic_clicks\|organic_ctr\|... --start --end [--page /x]` |
@@ -50,3 +51,4 @@ All commands live in `"<skill-base-dir>/../analyzer/scripts/"` and take `--proje
 - When a source cannot prove something (index status of a URL absent from the rows, rankings older than the SLA), say so.
 - Content churn inside a measurement window destroys attribution. Recommend (to Marketer7) that SEO-relevant changes are registered through the `analyzer-change` skill before they ship.
 - Market or segment specifics (country filters, URL prefixes, tiers) live in `.analyzer/seo/config.json` `segments`, never in this skill.
+- Rank tracking and Clarity are optional. A project without them sees "not configured (optional)", not a data gap.

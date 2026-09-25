@@ -41,6 +41,7 @@ Adapters normalize an export that another tool already produced. Analyzer7 never
 | `crawl` | `crawl` | CSV/JSON: url, status, redirect_to, redirect_hops, canonical, title, meta_description, robots, in_sitemap, inlinks | any crawler export |
 | `cwv` | `cwv` | CSV/JSON: url/origin, form_factor, lcp_p75_ms, inp_p75_ms, cls_p75, date | CrUX / PageSpeed Insights |
 | `indexation` | `indexation` | CSV/JSON: url, coverage_state/verdict, google_canonical, user_canonical, last_crawl | GSC URL inspection / page indexing export |
+| `clarity` (optional) | `behavior` | Clarity Data Export API JSON (`[{metricName, information: [{URL, Device, …}]}]`) or CSV (url, device, sessions, dead_click_pct, rage_click_pct, quickback_pct, excessive_scroll_pct, scroll_depth_pct) | Microsoft Clarity. **Context only:** diagnostics kinds (rankings, crawl, cwv, indexation, behavior) can never supply a metric value for evidence |
 
 Run `node "<skill-base-dir>/scripts/ingest.mjs" --source <id> --input <file> [--dimensions ...] [--start --end] [--set country=DEU] [--metric <series>]`. It writes an immutable, hashed snapshot and updates the source's freshness. Headline safety: GSC rows with a `query` or `page` dimension must not be summed into property totals. Adding `page` counts a search once per URL shown, and query rows omit anonymized queries. Totals come from a date-only pull.
 
@@ -55,6 +56,7 @@ Connectors fetch and ingest in one step for projects that have these providers. 
 | `ga4` | analytics / `timeseries` | same service account, `analytics.readonly` | Data API `runReport`; `date` plus any dimensions and metrics (non-numeric dimensions stay dimensions) |
 | `crawl` | crawl / `crawl` | none | HTTP GET without following redirects (hops counted), title, meta description, canonical, robots, and sitemap membership (`--sitemap`) |
 | `psi` | performance / `cwv` | optional API key in an env var (`--auth-method api_key_env --env-vars PSI_API_KEY`) | PageSpeed Insights field data (p75 LCP, INP, CLS) |
+| `clarity` (optional) | analytics / `clarity` | API token in an env var (`--auth-method api_key_env --env-vars CLARITY_API_TOKEN`) | Clarity Data Export API: last 1–3 days per URL and device; the API is rate-limited per project and day |
 
 The scopes are fixed to `webmasters.readonly` and `analytics.readonly`. The service-account key is read at run time and never written: state stores only its path (`auth.credentials_file`). Every response goes through the normal ingest path, so snapshots, hashes, and freshness are identical to a manual export. A failed fetch is recorded on the source (`unavailable`) and nothing is ingested.
 

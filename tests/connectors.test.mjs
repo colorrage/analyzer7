@@ -35,7 +35,7 @@ function startMock(publicKey) {
         seen.scopes.push(payload.scope);
         return valid ? send(200, {access_token: token}) : send(401, {error: 'invalid_grant'});
       }
-      if (request.headers.authorization !== `Bearer ${token}` && !url.pathname.startsWith('/site') && !url.pathname.startsWith('/psi')) return send(401, {error: {message: 'unauthenticated'}});
+      if (request.headers.authorization !== `Bearer ${token}` && !url.pathname.startsWith('/site') && !url.pathname.startsWith('/psi') && !url.pathname.startsWith('/clarity')) return send(401, {error: {message: 'unauthenticated'}});
       if (url.pathname.endsWith('/searchAnalytics/query')) {
         const body = JSON.parse(raw);
         seen.gscBodies.push(body);
@@ -45,6 +45,10 @@ function startMock(publicKey) {
       }
       if (url.pathname === '/v1/urlInspection/index:inspect') return send(200, {inspectionResult: {indexStatusResult: {coverageState: 'Submitted and indexed', googleCanonical: JSON.parse(raw).inspectionUrl, userCanonical: JSON.parse(raw).inspectionUrl}}});
       if (url.pathname.endsWith(':runReport')) return send(200, {rows: days('2026-09-01', 3).flatMap((date) => ['Organic Search', 'Direct'].map((channel) => ({dimensionValues: [{value: date.replace(/-/g, '')}, {value: channel}], metricValues: [{value: channel === 'Direct' ? '5' : '20'}, {value: '1'}]})))});
+      if (url.pathname === '/clarity') {
+        if (request.headers.authorization !== 'Bearer clarity-test-token') return send(401, {message: 'unauthorized'});
+        return send(200, [{metricName: 'Traffic', information: [{totalSessionCount: '50', URL: `http://localhost:${server.address().port}/site/a/`, Device: 'Mobile'}]}, {metricName: 'RageClickCount', information: [{sessionsWithMetricPercentage: 4, URL: `http://localhost:${server.address().port}/site/a/`, Device: 'Mobile'}]}]);
+      }
       if (url.pathname === '/psi') return send(200, {loadingExperience: {metrics: {LARGEST_CONTENTFUL_PAINT_MS: {percentile: 2600}, INTERACTION_TO_NEXT_PAINT: {percentile: 150}, CUMULATIVE_LAYOUT_SHIFT_SCORE: {percentile: 5}}}});
       if (url.pathname === '/site/sitemap.xml') return send(200, `<urlset><url><loc>http://localhost:${server.address().port}/site/a/</loc></url></urlset>`, 'application/xml');
       if (url.pathname === '/site/a/') return send(200, '<html><head><title>Page A</title><link rel="canonical" href="/site/a/"><meta name="description" content="About A"></head></html>', 'text/html');
@@ -97,6 +101,13 @@ test('connectors: GSC, URL inspection, GA4, crawl and PageSpeed fetch read-only 
   assert.equal(crawlRows[1].redirect_hops, 1);
   const psi = await connect('psi', '--source', 'psi', '--urls', `${mock.base}/site/a/`);
   assert.equal(readSnapshot(path.join(project, psi.observation)).rows[0].lcp_p75_ms, 2600);
+  register('--id', 'clarity', '--type', 'analytics', '--adapter', 'clarity', '--auth-method', 'api_key_env', '--env-vars', 'CLARITY_API_TOKEN');
+  const clarityEnv = {...env, CLARITY_API_TOKEN: 'clarity-test-token', ANALYZER_CONNECTOR_ENDPOINTS: JSON.stringify({...JSON.parse(env.ANALYZER_CONNECTOR_ENDPOINTS), clarity: `${mock.base}/clarity`})};
+  const clarity = JSON.parse((await exec(process.execPath, [path.join(SCRIPTS, 'connect.mjs'), 'clarity', '--source', 'clarity', '--days', '3', '--project', project, '--now', NOW], {env: clarityEnv})).stdout);
+  assert.equal(clarity.kind, 'behavior');
+  assert.deepEqual(clarity.period, {start: '2026-09-29', end: '2026-10-01'});
+  assert.equal(readSnapshot(path.join(project, clarity.observation)).rows[0].rage_click_pct, 4);
+  assert.doesNotMatch(fs.readFileSync(path.join(project, '.analyzer', 'sources.json'), 'utf8'), /clarity-test-token/, 'the token is never stored');
 
   assert.ok(mock.seen.scopes.every((scope) => /\.readonly$/.test(scope)), `only read-only scopes: ${mock.seen.scopes.join(', ')}`);
   const state = fs.readFileSync(path.join(project, '.analyzer', 'sources.json'), 'utf8');

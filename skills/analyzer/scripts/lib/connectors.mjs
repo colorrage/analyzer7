@@ -213,4 +213,19 @@ export async function pagespeed(source, urls) {
   return {rows, failures};
 }
 
+// ---------- Microsoft Clarity (Data Export API) ----------
+
+// The API returns the last 1–3 days only and is rate-limited per project;
+// the token comes from an env var named in the source's auth.env_vars.
+export async function clarityInsights(source, {days = 3, dimensions = ['URL']}) {
+  const token = envSecret(source);
+  if (!token) throw new UsageError(`source ${source.id}: set the Clarity API token in an env var named by --env-vars (it is never stored)`);
+  if (days < 1 || days > 3) throw new UsageError('Clarity returns the last 1–3 days only');
+  const query = new URLSearchParams({numOfDays: String(days), ...Object.fromEntries(dimensions.slice(0, 3).map((dimension, index) => [`dimension${index + 1}`, dimension]))});
+  const response = await fetch(`${endpoints().clarity}?${query}`, {headers: {Authorization: `Bearer ${token}`, 'Content-Type': 'application/json'}});
+  const body = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(`HTTP ${response.status}: ${body?.message ?? response.statusText}`);
+  return body;
+}
+
 export {toCsv, writeExport} from './core.mjs';
