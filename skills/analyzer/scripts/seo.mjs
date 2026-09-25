@@ -281,6 +281,12 @@ function basisNote(period) {
   return before === after ? `_Windows: ${before} days each; clicks compared as totals._` : `_Windows: ${before} vs ${after} days; click changes are normalized per day (raw totals shown for reference)._`;
 }
 
+function behaviorStatus(result) {
+  const entry = result.availability.find((item) => item.label === 'Behavior (Clarity)');
+  if (!entry?.source_id) return 'Not configured (optional).';
+  return `Registered (${entry.source_id}) but no usable snapshot: ${entry.warning ?? 'no data ingested'}.`;
+}
+
 function significanceNote(result) {
   const parts = [result.query_movement, result.page_movement].filter(Boolean).map((movement, index) => `${index === 0 && result.query_movement ? 'queries' : 'pages'}: ${movement.significant} of ${movement.tested} changes significant`);
   return parts.length ? `_Listed only if the click change survives false-discovery-rate control (q = 0.1); ${parts.join('; ')}._` : '';
@@ -324,7 +330,7 @@ function writeSeoReport(project, result, now) {
     {title: 'Technical SEO', lines: result.technical ? [`Summary: ${Object.entries(result.technical.summary).map(([key, value]) => `${key} ${value}`).join(', ') || 'no findings'}`, ...result.technical.findings.map((finding) => `- ${finding.code}: ${finding.url} — ${finding.message}`)] : ['DATA GAP — no crawl snapshot.']},
     {title: 'CWV/performance issues', lines: result.cwv ? [...result.cwv.regressions.map((row) => `- regression: ${row.url} ${row.metric} ${row.previous} → ${row.current} (${row.previous_status} → ${row.status})`), ...result.cwv.poor.map((page) => `- poor: ${page.url} (${page.form_factor})`), ...(result.cwv.regressions.length || result.cwv.poor.length ? [] : ['No regressions or poor pages in the snapshot.'])] : ['DATA GAP — no Core Web Vitals snapshot.']},
     {title: 'Ranking changes', lines: result.ranking_changes ? [`Summary: ${Object.entries(result.ranking_changes.summary).map(([key, value]) => `${key} ${value}`).join(', ')} (${result.ranking_changes.previous_file ?? 'no previous'} → ${result.ranking_changes.current_file})`, ...result.ranking_changes.changes.map((row) => `- \`${row.keyword}\` ${row.location}/${row.device}: ${row.previous_position ?? '—'} → ${row.current_position ?? '—'} (${row.movement})${row.url_changed ? ' — ranking URL switched' : ''}${row.alert ? ' — ALERT' : ''}`)] : ['DATA GAP — no rank-tracker source.']},
-    {title: 'Behavior context (Clarity, optional)', lines: result.behavior ? [...table(['Page', 'Sessions', 'Dead click %', 'Rage click %', 'Quick-back %', 'Scroll depth %'], result.behavior.rows.map((row) => [row.page, row.sessions, row.dead_click_pct ?? '—', row.rage_click_pct ?? '—', row.quickback_pct ?? '—', row.scroll_depth_pct ?? '—'])), '', `${result.behavior.note} Snapshot ${result.behavior.file} (${result.behavior.period?.start} → ${result.behavior.period?.end}).`] : ['Not configured (optional).']},
+    {title: 'Behavior context (Clarity, optional)', lines: result.behavior ? [...table(['Page', 'Sessions', 'Dead click %', 'Rage click %', 'Quick-back %', 'Scroll depth %'], result.behavior.rows.map((row) => [row.page, row.sessions, row.dead_click_pct ?? '—', row.rage_click_pct ?? '—', row.quickback_pct ?? '—', row.scroll_depth_pct ?? '—'])), '', `${result.behavior.note} Snapshot ${result.behavior.file} (${result.behavior.period?.start} → ${result.behavior.period?.end}).`] : [behaviorStatus(result)]},
     {title: 'Recent SEO-related changes', lines: result.recent_seo_changes.map((change) => `- ${change.id} ${change.timestamp ?? 'unknown time'} ${change.type}: ${change.title}`)},
     {title: 'Potential confounders', lines: [...result.recent_seo_changes.map((change) => `- ${change.id} lands inside the compared windows`), ...result.external_context.map((entry) => `- ${entry.ref} (${entry.title}, opened ${entry.opened}) — external context from Scout7`), ...result.availability.filter((entry) => entry.health && entry.warning && !String(entry.health).startsWith('not_configured') && entry.health !== 'ok').map((entry) => `- ${entry.label}: ${entry.warning}`)]},
     {title: 'Evidence-backed opportunities', lines: result.recorded ? result.recorded.map((entry) => `- ${entry.id} (${entry.type}) — ${entry.status}`) : ['Run with --record to register opportunities as SEO-OPP records for Marketer7 review.']},
