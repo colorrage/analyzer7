@@ -12,6 +12,10 @@
 //            [--asset <ref>] [--publication <ref>] [--deployment <ref>]
 //            [--origin-ref <ref>] [--details "a|b"] [--confirmed true|false]
 //            [--supersedes CH-NNN] [--source-path <path>]
+//            [--applied-at <ISO>] [--deploy-status deployed|pending|unknown]
+//   deploy   --changes CH-NNN,... --deployed-at <ISO> [--basis deploy_log] [--deployment <id>] [--note <text>]
+//   import-changes --file <csv|md> [--table <heading>] [--date-means applied|deployed]
+//            [--default-type <type>] [--origin <origin>] [--deploy-status pending] [--dry-run]
 //   baseline --metric <id> --start <date> --end <date> [--source <id>]
 //            [--page /a] [--query <q>] [--country <c>] [--segment <s>] [--experiment EX-NNN]
 //   status   --id AN-NNN|SEO-OPP-NNN --status <status> [--note <text>]
@@ -20,7 +24,8 @@
 
 import path from 'node:path';
 import {UsageError, nowIso, parseArgs, printJson, readJson, requireInitialized, resolveProject, runCli, scopeFromArgs, writeJson} from './lib/core.mjs';
-import {recordBaseline, registerChange, registerSource, updateStatus} from './lib/records.mjs';
+import {activeChangeByRef, deployChanges, recordBaseline, registerChange, registerSource, updateStatus} from './lib/records.mjs';
+import {parseChangeLog} from './lib/changelog.mjs';
 
 const COMMON = ['project', 'now'];
 
@@ -62,7 +67,7 @@ const COMMANDS = {
   },
 
   change(argv) {
-    const args = parseArgs(argv, {options: [...COMMON, 'title', 'origin', 'type', 'timestamp', 'basis', 'experiment', 'mission', 'asset', 'publication', 'deployment', 'origin-ref', 'details', 'confirmed', 'supersedes', 'source-path'], lists: ['pages']});
+    const args = parseArgs(argv, {options: [...COMMON, 'title', 'origin', 'type', 'timestamp', 'basis', 'experiment', 'mission', 'asset', 'publication', 'deployment', 'origin-ref', 'details', 'confirmed', 'supersedes', 'source-path', 'applied-at', 'deploy-status'], lists: ['pages']});
     const root = requireInitialized(resolveProject(args.project));
     const now = nowIso(args.now);
     const result = registerChange(root, {
@@ -82,8 +87,35 @@ const COMMANDS = {
       confirmed: args.confirmed === undefined ? undefined : args.confirmed === 'true',
       supersedes: args.supersedes,
       source_path: args.sourcePath,
+      applied_at: args.appliedAt,
+      deploy_status: args.deployStatus,
     }, now);
     printJson(result);
+  },
+
+  deploy(argv) {
+    const args = parseArgs(argv, {options: [...COMMON, 'deployed-at', 'basis', 'deployment', 'note'], lists: ['changes']});
+    const root = requireInitialized(resolveProject(args.project));
+    if (!args.changes) throw new UsageError('deploy needs --changes CH-NNN,...');
+    printJson({status: 'recorded', results: deployChanges(root, args.changes, {deployedAt: args.deployedAt, basis: args.basis ?? 'deploy_log', deploymentId: args.deployment ?? null, note: args.note ?? null}, nowIso(args.now))});
+  },
+
+  'import-changes'(argv) {
+    const args = parseArgs(argv, {flags: ['dry-run'], options: [...COMMON, 'file', 'table', 'date-means', 'default-type', 'origin', 'deploy-status']});
+    const project = resolveProject(args.project);
+    const root = requireInitialized(project);
+    if (!args.file) throw new UsageError('import-changes needs --file <csv|md>');
+    if (args.dateMeans && !['applied', 'deployed'].includes(args.dateMeans)) throw new UsageError('--date-means must be applied or deployed');
+    const now = nowIso(args.now);
+    const rows = parseChangeLog(path.resolve(args.file), {table: args.table ?? null, dateMeans: args.dateMeans ?? null, defaultType: args.defaultType ?? 'other', origin: args.origin ?? 'manual', deployStatus: args.deployStatus ?? null, project});
+    const results = rows.map((fields) => {
+      const existing = activeChangeByRef(root, fields.origin_ref);
+      if (existing) return {status: 'already_registered', id: existing.data.id, title: fields.title};
+      if (args.dryRun) return {status: 'dry_run', title: fields.title, deploy_status: fields.deploy_status, timestamp: fields.timestamp ?? null, applied_at: fields.applied_at, pages: fields.pages, type: fields.type};
+      const result = registerChange(root, fields, now);
+      return {status: result.status, id: result.id, title: fields.title, deploy_status: fields.deploy_status, pages: fields.pages.length};
+    });
+    printJson({status: args.dryRun ? 'dry_run' : 'imported', rows: rows.length, registered: results.filter((entry) => entry.status === 'registered').length, results});
   },
 
   baseline(argv) {

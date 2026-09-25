@@ -41,9 +41,11 @@ Body sections, in order: Observation, Measurement, Experiment threshold check (e
 
 ## Change record (CH)
 
-Frontmatter: `id, title, timestamp (ISO or null), timestamp_basis (manual | publish_ledger | execution_result | deploy_log | commit | task_created | loop_updated | unknown), timestamp_has_timezone, origin (signal7 | hyper7 | marketer7 | manual | deployment | external), origin_ref (dedupe key), type, pages, mission_id, experiment_id, asset_id, publication_id, deployment_id, confirmed, recorded_at, source_path, supersedes`.
+Frontmatter: `id, title, timestamp (ISO or null — when the change went live), deploy_status (deployed | pending | unknown), applied_at (when it was applied, if different), timestamp_basis (manual | publish_ledger | execution_result | deploy_log | commit | task_created | loop_updated | unknown), timestamp_has_timezone, origin (signal7 | hyper7 | marketer7 | manual | deployment | external), origin_ref (dedupe key), type, pages, mission_id, experiment_id, asset_id, publication_id, deployment_id, confirmed, recorded_at, source_path, supersedes`.
 
 Types: `seo_content_update, technical_seo_fix, tracking_change, pricing_change, product_release, campaign, deployment, content_publish, landing_page_change, performance_fix, schema_change, other`. An empty `pages` list means the scope is unknown and is treated as site-wide.
+
+A `pending` change was applied (locally, on staging) but is not live: it has no timestamp and is excluded from every analysis, because it cannot have influenced anything. `record.mjs deploy --changes CH-… --deployed-at <time>` writes a superseding record per change with the real deploy time. Evidence that links the old ID follows the supersede chain to the deployed record.
 
 ## Baseline record (BL)
 

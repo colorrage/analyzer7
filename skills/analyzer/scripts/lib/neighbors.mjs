@@ -284,7 +284,10 @@ function publications(tasks) {
         title: asset.title ?? task.title,
         channel: row.channel ?? asset.channel ?? null,
         asset_type: asset.asset_type ?? null,
-        published_at: row.actual_publish_time ?? row.timestamp ?? null,
+        // A publication can go live later than the ledger write (for example a
+        // CMS sync); an optional deployed_at/live_at on the row wins.
+        published_at: row.deployed_at ?? row.live_at ?? row.actual_publish_time ?? row.timestamp ?? null,
+        live_time_basis: row.deployed_at || row.live_at ? 'deploy_log' : 'publish_ledger',
         publication_url: event && event.publication_url && event.publication_url !== 'unknown' ? event.publication_url : null,
         idempotency_key: row.idempotency_key ?? null,
         content_hash: asset.content_hash ?? null,
@@ -338,7 +341,8 @@ export function readHyper(project) {
         warnings.push(`${rel(project, taskPath)}: ${document.error}`);
         continue;
       }
-      tasks.push({id: document.data.id ?? `T${match[1]}`, title: document.data.title ?? entry.name, phase: document.data.phase ?? null, scope: document.data.scope ?? null, bugfix: document.data.bugfix ?? null, created: document.data.created ?? null, path: rel(project, taskPath)});
+      // `deployed_at` is optional: Hyper7 does not record it by default.
+      tasks.push({id: document.data.id ?? `T${match[1]}`, title: document.data.title ?? entry.name, phase: document.data.phase ?? null, scope: document.data.scope ?? null, bugfix: document.data.bugfix ?? null, created: document.data.created ?? null, deployed_at: document.data.deployed_at ?? null, path: rel(project, taskPath)});
     }
   }
   const loops = [];
@@ -351,7 +355,7 @@ export function readHyper(project) {
       warnings.push(`${rel(project, loopPath)}: ${document.error}`);
       continue;
     }
-    loops.push({id: document.data.id, title: document.data.title ?? entry.name, status: document.data.status ?? null, created: document.data.created ?? null, updated: document.data.updated ?? null, path: rel(project, loopPath)});
+    loops.push({id: document.data.id, title: document.data.title ?? entry.name, status: document.data.status ?? null, created: document.data.created ?? null, updated: document.data.updated ?? null, deployed_at: document.data.deployed_at ?? null, path: rel(project, loopPath)});
   }
   return {present: true, tasks, loops, warnings};
 }

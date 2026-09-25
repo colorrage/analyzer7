@@ -12,7 +12,7 @@ Status: partial. Difference-in-differences against untouched control pages and y
 
 ## Hyper7 deploy timestamps
 
-Status: blocked on Hyper7. Hyper tasks record `created`, not a deploy time, so imports are unconfirmed proxies. A Hyper7-side optional `deployed_at` (or a deploy log) would make them confirmed automatically.
+Status: supported on the Analyzer7 side. Analyzer7 reads an optional `deployed_at` from Hyper7 task and loop frontmatter, and `deployed_at`/`live_at` from Signal7 ledger rows. Hyper7 and Signal7 do not write those fields yet; until they do, use `record.mjs import-changes` or `record.mjs deploy`.
 
 ## Marketer7 import helper
 

@@ -21,13 +21,13 @@ Mission (Marketer7 M1) → Experiment (Marketer7 EX-014) → Asset / publication
 ## Signal7 (`.signal/`)
 
 - **Reads:** `tasks|archive/S<N>-*/publish-log.md` (published rows: `actual_publish_time`, `idempotency_key`, optional `mission_id/experiment_id/tracking`), `execution-result.md` (`signal7-execution-result/v1` events: asset, status, `publication_url`, timestamp), and asset frontmatter (`asset_type`, `channel`, `content_hash`).
-- **Imports:** `discover.mjs --import-changes` registers each published asset as a change (`origin: signal7`, `origin_ref: signal7:S<N>/A<N>`, timestamp basis `publish_ledger`, pages from `publication_url`). The import is idempotent. A legacy task without metadata still imports; an unknown URL means unknown scope (site-wide, minor confounder).
+- **Imports:** `discover.mjs --import-changes` registers each published asset as a change (`origin: signal7`, `origin_ref: signal7:S<N>/A<N>`, timestamp basis `publish_ledger`, pages from `publication_url`). An optional `deployed_at`/`live_at` on the ledger row (for example a CMS sync after the ledger write) takes precedence, with basis `deploy_log`. The import is idempotent. A legacy task without metadata still imports; an unknown URL means unknown scope (site-wide, minor confounder).
 - **Never:** asks humans to re-enter what Signal7 already recorded, or writes `.signal/`.
 
 ## Hyper7 (`.hyper/`)
 
 - **Reads:** `tasks|archive/*/task.md` (phase, scope, `created`) and `loops/L<N>-*/loop.md` (status, `updated`).
-- **Imports (opt-in, `--include hyper7`):** finished `feature`/`quick` tasks and closed loops, as **unconfirmed** changes. Hyper7 records no deploy time, so the timestamp basis is `task_created` or `loop_updated`, and pages are unknown until a human supersedes the record with a confirmed one. Research and code-review tasks are not changes.
+- **Imports (opt-in, `--include hyper7`):** finished `feature`/`quick` tasks and closed loops. If the task or loop frontmatter carries the optional `deployed_at`, the change is confirmed with basis `deploy_log`. Otherwise it is **unconfirmed**, with basis `task_created` or `loop_updated`, and pages stay unknown until a human supersedes the record. Research and code-review tasks are not changes.
 - **Hand-off:** technical findings (canonical, redirects, 4xx/5xx, sitemap, structured data, CWV) become SEO-OPP records with `suggested_owner: hyper7`. Hyper7 fixes; Analyzer7 verifies with a later crawl or snapshot.
 - **Never:** manages Hyper loops or tasks.
 

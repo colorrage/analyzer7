@@ -87,8 +87,11 @@ export function probe(project, now) {
   const awaiting = opportunities.filter((opportunity) => opportunity.status === 'awaiting_review');
   const reports = listDir(path.join(root, 'reports')).filter((entry) => entry.isFile() && entry.name.endsWith('.md')).map((entry) => entry.name).sort();
   const proposedMetrics = metrics.filter((metric) => metric.status === 'proposed').map((metric) => metric.id);
-  const unconfirmedChanges = changeRecords.filter((change) => change.data.confirmed === false).map((change) => change.data.id);
-  const unknownTiming = changeRecords.filter((change) => parseTimestamp(change.data.timestamp) === null).map((change) => change.data.id);
+  const unconfirmedChanges = changeRecords.filter((change) => change.data.confirmed === false && change.data.deploy_status !== 'pending' && !changeRecords.some((other) => other.data.supersedes === change.data.id)).map((change) => change.data.id);
+  const supersededIds = new Set(changeRecords.map((change) => change.data.supersedes).filter(Boolean));
+  const liveRecords = changeRecords.filter((change) => !supersededIds.has(change.data.id));
+  const pendingDeploy = liveRecords.filter((change) => change.data.deploy_status === 'pending').map((change) => change.data.id);
+  const unknownTiming = liveRecords.filter((change) => change.data.deploy_status !== 'pending' && parseTimestamp(change.data.timestamp) === null).map((change) => change.data.id);
 
   for (const neighbor of Object.values(neighbors)) for (const warning of neighbor.warnings ?? []) warnings.push(warning);
 
@@ -118,7 +121,7 @@ export function probe(project, now) {
     metrics: {count: metrics.length, active: metrics.filter((metric) => metric.status !== 'proposed').map((metric) => metric.id), proposed: proposedMetrics},
     experiments,
     evidence: {count: evidenceIndex.length, recent: evidenceIndex.slice(-RECENT)},
-    changes: {count: changeRecords.length, recent: readIndex(root, 'change').slice(-RECENT), unconfirmed: unconfirmedChanges, unknown_timing: unknownTiming},
+    changes: {count: changeRecords.length, recent: readIndex(root, 'change').slice(-RECENT), unconfirmed: unconfirmedChanges, unknown_timing: unknownTiming, pending_deploy: pendingDeploy},
     anomalies: {open: openAnomalies.map((anomaly) => ({id: anomaly.id, metric: anomaly.metric, severity: anomaly.severity, detected_at: anomaly.detected_at})), total: anomalies.length},
     seo: {opportunities_awaiting_review: awaiting.length, opportunities: awaiting.slice(-RECENT).map((opportunity) => ({id: opportunity.id, type: opportunity.type, query: opportunity.query ?? null, page: opportunity.page ?? null}))},
     monitors: monitors.length,
@@ -147,7 +150,7 @@ export function renderResume(snapshot) {
   lines.push('', `Recent evidence (${snapshot.evidence.count} total):`);
   if (snapshot.evidence.recent.length === 0) lines.push('  none');
   for (const entry of snapshot.evidence.recent) lines.push(`  ${entry.id} ${entry.summary}`);
-  lines.push('', `Changes: ${snapshot.changes.count} registered, ${snapshot.changes.unconfirmed.length} unconfirmed, ${snapshot.changes.unknown_timing.length} with unknown timing`);
+  lines.push('', `Changes: ${snapshot.changes.count} registered, ${snapshot.changes.unconfirmed.length} unconfirmed, ${snapshot.changes.unknown_timing.length} with unknown timing, ${snapshot.changes.pending_deploy.length} applied but not deployed`);
   lines.push(`Anomalies: ${snapshot.anomalies.open.length} unresolved${snapshot.anomalies.open.length ? ` (${snapshot.anomalies.open.map((anomaly) => anomaly.id).join(', ')})` : ''}`);
   lines.push(`SEO: ${snapshot.seo.opportunities_awaiting_review} opportunit${snapshot.seo.opportunities_awaiting_review === 1 ? 'y' : 'ies'} awaiting review`);
   if (snapshot.metrics.proposed.length) lines.push(`Metrics awaiting confirmation: ${snapshot.metrics.proposed.join(', ')}`);

@@ -79,15 +79,28 @@ function scopePages(scope) {
   return Array.isArray(scope.page) ? scope.page : [scope.page];
 }
 
-export function analyzeComparison(root, project, {metricId, sourceId = null, before, after, scope = {}, linkedChangeIds = [], experimentId = null, design = 'before_after', now, contextRefs = [], analysisKind = 'comparison', extraIssues = [], baselineCheck = null, control = 'auto', seasonality = true}) {
+export function analyzeComparison(root, project, {metricId, sourceId = null, before, after, scope = {}, linkedChangeIds: requestedLinks = [], experimentId = null, design = 'before_after', now, contextRefs = [], analysisKind = 'comparison', extraIssues = [], baselineCheck = null, control = 'auto', seasonality = true}) {
   const metric = resolveMetric(root, metricId);
   const projectData = loadProject(root);
   const canonical = metric.canonical_source;
   const primarySource = sourceId ?? canonical;
   if (!primarySource) throw new UsageError(`metric ${metric.id} has no canonical_source; set one in metrics.json`);
   const changes = listRecords(root, 'change');
+  let linkedChangeIds = requestedLinks;
   const unknownLinks = linkedChangeIds.filter((id) => !changes.some((change) => change.data.id === id));
   if (unknownLinks.length) throw new UsageError(`unknown change id(s): ${unknownLinks.join(', ')} — register the change first`);
+  // A linked change that was later superseded (e.g. marked deployed) is
+  // followed to its current record.
+  const successor = (id) => {
+    let current = id;
+    for (let guard = 0; guard < 100; guard += 1) {
+      const next = changes.find((change) => change.data.supersedes === current);
+      if (!next) return current;
+      current = next.data.id;
+    }
+    return current;
+  };
+  linkedChangeIds = [...new Set(linkedChangeIds.map(successor))];
   const issues = [];
   if (metric.status === 'proposed') issues.push(issue('metric_unconfirmed', 'blocking', `metric ${metric.id} is proposed, not confirmed; a human must set status: active before it can support evidence`));
   if (primarySource !== canonical) issues.push(issue('non_canonical_source', 'minor', `${primarySource} is not the canonical source for ${metric.id} (canonical: ${canonical})`));

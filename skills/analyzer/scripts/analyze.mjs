@@ -145,6 +145,7 @@ function maintain(argv) {
     if (age > staleAfterDays) add('baseline', 'attention', `${baseline.data.id} (${baseline.data.metric}) ends ${baseline.data.period_end}, ${age} days ago`, 'refresh the baseline before comparing against it');
   }
   if (snapshot.changes.unconfirmed.length) add('change', 'attention', `unconfirmed change timing: ${snapshot.changes.unconfirmed.join(', ')}`, 'confirm deploy/publish times (supersede with a confirmed record)');
+  if (snapshot.changes.pending_deploy.length) add('change', 'attention', `applied but not deployed: ${snapshot.changes.pending_deploy.join(', ')}`, 'when they go live, record.mjs deploy --changes … --deployed-at <time>');
   if (snapshot.changes.unknown_timing.length) add('change', 'attention', `unknown change timing: ${snapshot.changes.unknown_timing.join(', ')}`, 'record the timestamp; unplaced changes weaken every overlapping analysis');
   const uncompressed = walkFiles(path.join(root, 'observations')).filter((file) => file.endsWith('.json'));
   if (uncompressed.length) add('storage', 'attention', `${uncompressed.length} uncompressed observation snapshot(s)`, 'run analyze.mjs compact (gzip, hash-verified)');

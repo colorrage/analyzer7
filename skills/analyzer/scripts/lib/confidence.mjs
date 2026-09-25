@@ -93,6 +93,8 @@ export function classifyChanges(changes, {before, after, scopePages, linkedIds =
   const superseded = new Set(changes.map((change) => change.data.supersedes).filter(Boolean));
   for (const change of changes) {
     if (superseded.has(change.data.id)) continue;
+    // Not live yet: cannot have influenced any observation.
+    if (change.data.deploy_status === 'pending') continue;
     const isLinked = linkedIds.includes(change.data.id) || (experimentId && change.data.experiment_id === experimentId);
     const timestamp = parseTimestamp(change.data.timestamp);
     if (isLinked) {

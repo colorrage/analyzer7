@@ -187,7 +187,7 @@ export function checkComparability(beforeSnapshots, afterSnapshots) {
 
 export function checkTrackingChanges(changes, period, label = 'period') {
   return changes
-    .filter((change) => change.data.type === 'tracking_change')
+    .filter((change) => change.data.type === 'tracking_change' && change.data.deploy_status !== 'pending')
     .filter((change) => {
       const date = isoDate(change.data.timestamp);
       return date && date >= period.start && date <= period.end;

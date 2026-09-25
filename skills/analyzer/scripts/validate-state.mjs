@@ -13,7 +13,7 @@ import {RECORD_KINDS, listDir, parseFrontmatter, parseTimestamp, readMaybeGzipJs
 import zlib from 'node:zlib';
 import {ADAPTERS} from './lib/adapters.mjs';
 import {findSecrets} from './lib/redact.mjs';
-import {CHANGE_ORIGINS, CHANGE_TYPES, TIMESTAMP_BASES} from './lib/records.mjs';
+import {CHANGE_ORIGINS, CHANGE_TYPES, DEPLOY_STATUSES, TIMESTAMP_BASES} from './lib/records.mjs';
 import {OBSERVATION_KINDS, SOURCE_TYPES} from './lib/state.mjs';
 import {AGGREGATIONS} from './lib/stats.mjs';
 
@@ -173,6 +173,8 @@ export function validateAnalyzerState(root) {
     check(CHANGE_TYPES.has(data.type), `${file}: unknown type ${data.type}`);
     check(TIMESTAMP_BASES.has(data.timestamp_basis), `${file}: unknown timestamp_basis ${data.timestamp_basis}`);
     check(data.timestamp === null || parseTimestamp(data.timestamp) !== null, `${file}: timestamp must be ISO-8601 or null`);
+    if (data.deploy_status !== undefined) check(DEPLOY_STATUSES.has(data.deploy_status), `${file}: unknown deploy_status ${data.deploy_status}`);
+    if (data.deploy_status === 'pending') check(data.timestamp === null, `${file}: a pending change cannot have a deploy timestamp`);
     if (data.supersedes) check(ids.change.has(data.supersedes), `${file}: supersedes ${data.supersedes}, which does not exist`);
   }
   for (const {file, data} of records.baseline) {

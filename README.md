@@ -41,6 +41,7 @@ Signal7 / Hyper7 ──► real-world change (publish/deploy)│──► Analyz
 | Versioned metric dictionary: canonical sources, fallbacks, discrepancy tolerance, proposed → active confirmation | Shipped |
 | Normalized, immutable, hashed observation snapshots (adapters: `gsc`, `seo-rankings-md`, `rankings`, `timeseries`, `crawl`, `cwv`, `indexation`) | Shipped |
 | Evidence ledger (EV), change registry (CH), baselines (BL), anomalies (AN), SEO opportunities (SEO-OPP), append-only indexes | Shipped |
+| Change-log import (CSV or markdown release tables), applied vs deployed dates, `record.mjs deploy` | Shipped |
 | Three-axis evidence model with a deterministic rubric and named confounders | Shipped |
 | Marketer7 experiment measurement: plan, baseline, evaluate, `external-evidence-reference/v1` export | Shipped, tested against Marketer7's real validator |
 | Signal7 publication import (idempotent), opt-in Hyper7 import (unconfirmed), Scout7 context references | Shipped, tested against Signal7's real fixture |
