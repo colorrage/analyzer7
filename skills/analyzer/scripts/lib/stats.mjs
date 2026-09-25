@@ -291,3 +291,48 @@ export function meetsThreshold(actual, threshold) {
     default: return actual === threshold.value;
   }
 }
+
+// ---------- p-values and multiple comparisons ----------
+
+// Standard normal CDF (Abramowitz–Stegun 7.1.26, |error| < 1.5e-7).
+export function normalCdf(z) {
+  const sign = z < 0 ? -1 : 1;
+  const x = Math.abs(z) / Math.SQRT2;
+  const t = 1 / (1 + 0.3275911 * x);
+  const erf = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return 0.5 * (1 + sign * erf);
+}
+
+export function pTwoSided(z) {
+  return z === null || z === undefined || !Number.isFinite(z) ? 1 : 2 * (1 - normalCdf(Math.abs(z)));
+}
+
+export function pOneSidedBelow(z) {
+  return z === null || z === undefined || !Number.isFinite(z) ? 1 : normalCdf(z);
+}
+
+// Benjamini–Hochberg: which of many tests survive a false-discovery rate q.
+// Returns a parallel array of booleans.
+export function benjaminiHochberg(pValues, q = 0.1) {
+  const order = pValues.map((p, index) => ({p, index})).sort((a, b) => a.p - b.p);
+  let cutoff = -1;
+  order.forEach(({p}, rank) => {
+    if (p <= ((rank + 1) / order.length) * q) cutoff = rank;
+  });
+  const keep = new Array(pValues.length).fill(false);
+  for (let rank = 0; rank <= cutoff; rank += 1) keep[order[rank].index] = true;
+  return keep;
+}
+
+// Per-day count rate test (over-dispersion adjusted), e.g. clicks per period.
+export function rateZ(beforeCount, beforeDays, afterCount, afterDays, overdispersion = 2) {
+  const standardError = Math.sqrt(beforeCount / beforeDays ** 2 + afterCount / afterDays ** 2) * Math.sqrt(overdispersion);
+  return standardError === 0 ? 0 : (afterCount / afterDays - beforeCount / beforeDays) / standardError;
+}
+
+// Clicks vs an expected CTR (binomial, over-dispersion adjusted).
+export function belowExpectedZ(clicks, impressions, expectedRate, overdispersion = 2) {
+  if (!impressions || expectedRate <= 0 || expectedRate >= 1) return null;
+  const standardError = Math.sqrt(impressions * expectedRate * (1 - expectedRate) * overdispersion);
+  return standardError === 0 ? null : (clicks - impressions * expectedRate) / standardError;
+}

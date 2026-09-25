@@ -111,9 +111,13 @@ function audit(argv) {
     const pageBefore = gscRows(root, gsc, window.before, {require: ['page'], exclude: ['query']});
     const pageAfter = gscRows(root, gsc, window.after, {require: ['page'], exclude: ['query']});
     if (queryAfter.rows.length) {
+      // Expected CTR by position, fitted from this property's own query data.
+      const fit = seo.fitCtrCurve([...queryBefore.rows, ...queryAfter.rows], config.expected_ctr_curve);
+      result.ctr_curve = fit;
+      const afterDays = Math.round((Date.parse(window.after.end) - Date.parse(window.after.start)) / 86400000) + 1;
       result.top_queries = seo.rollup(queryAfter.rows, ['query']).sort((a, b) => b.impressions - a.impressions).slice(0, 10);
-      result.ctr_opportunities = seo.ctrOpportunities(queryAfter.rows, config);
-      result.striking_distance = seo.strikingDistance(queryAfter.rows, config);
+      result.ctr_opportunities = seo.ctrOpportunities(queryAfter.rows, config, {curve: fit.curve, days: afterDays});
+      result.striking_distance = seo.strikingDistance(queryAfter.rows, config, {curve: fit.curve, days: afterDays});
       result.cannibalization = seo.cannibalization(queryAfter.rows, config, {segmentKey});
     } else {
       gaps.push('Query-level GSC rows (query×page) for the current period are missing: top queries, CTR opportunities, striking distance, and cannibalization are not evaluated');
@@ -132,7 +136,7 @@ function audit(argv) {
     if (pageRowsBefore.length && pageRowsAfter.length) {
       const pageMovement = seo.comparePeriodsSeo(pageRowsBefore, pageRowsAfter, {dimensions: ['page'], beforePeriod: window.before, afterPeriod: window.after});
       result.page_movement = seo.winnersAndDecliners(pageMovement);
-      result.content_decay = seo.contentDecay(pageMovement, config);
+      result.content_decay = seo.contentDecay(pageMovement, config, {beforeDays: Math.round((Date.parse(window.before.end) - Date.parse(window.before.start)) / 86400000) + 1});
     }
     result.provenance = [...queryAfter.snapshots, ...queryBefore.snapshots, ...pageAfter.snapshots, ...totalsAfter.snapshots].map((snapshot) => ({file: snapshot.file, retrieved_at: snapshot.retrieved_at, rows_sha256: snapshot.rows_sha256})).filter((entry, index, all) => all.findIndex((other) => other.file === entry.file) === index);
   } else if (gsc) {
@@ -167,9 +171,21 @@ function audit(argv) {
   const scout = readScout(project);
   result.external_context = scout.batches.filter((batch) => (batch.opened ?? '') >= since).map((batch) => ({ref: batch.ref, title: batch.title, opened: batch.opened, path: batch.path}));
 
+  result.ranked_opportunities = rankOpportunities(result);
   if (args.record) result.recorded = recordFindings(root, result, now, config);
   if (args.report) result.report = writeSeoReport(project, result, now).relative;
   printJson(result);
+}
+
+// One list across types, by estimated clicks per 28 days. Striking-distance
+// upside is hypothetical and cannibalization has no click estimate; both are
+// kept separate rather than mixed into the ranking.
+function rankOpportunities(result) {
+  const ranked = [
+    ...(result.ctr_opportunities ?? []).map((row) => ({type: 'ctr_opportunity', subject: `${row.query} → ${row.page}`, estimated_clicks_28d: row.estimated_click_gain_28d, basis: `CTR ${row.ctr_pct}% vs expected ${row.expected_ctr_pct}% at position ${row.avg_position}`})),
+    ...(result.content_decay ?? []).map((row) => ({type: 'content_decay', subject: row.page, estimated_clicks_28d: row.estimated_click_loss_28d, basis: `clicks ${row.clicks_change_pct}% per day; recovering the before level`})),
+  ].sort((a, b) => b.estimated_clicks_28d - a.estimated_clicks_28d);
+  return {ranked, hypothetical_top3_upside: (result.striking_distance?.positions_4_15 ?? []).slice(0, 5).map((row) => ({subject: `${row.query} → ${row.page}`, upside_if_top3_28d: row.upside_if_top3_28d, position: row.avg_position})), note: 'estimated clicks per 28 days; estimates, not forecasts'};
 }
 
 function recordFindings(root, result, now, config) {
@@ -186,19 +202,19 @@ function recordFindings(root, result, now, config) {
   const period = result.periods?.after;
   const provenance = (result.provenance ?? []).map((entry) => `- \`${entry.file}\` retrieved ${entry.retrieved_at}`).join('\n') || '- none';
   for (const row of result.ctr_opportunities ?? []) {
-    opportunity({title: `High impressions, low CTR: ${row.query}`, type: 'ctr_opportunity', dedupe_key: `ctr:${row.query}:${row.page}`, query: row.query, page: row.page, impressions: row.impressions, avg_position: row.avg_position, ctr_pct: row.ctr_pct, expected_ctr_pct: row.expected_ctr_pct, period_start: period?.start, period_end: period?.end, suggested_owner: 'marketer7'},
-      `## Evidence\n\n- Query \`${row.query}\` → \`${row.page}\`: ${row.impressions} impressions, average position ${row.avg_position}, CTR ${row.ctr_pct}% (heuristic expected ~${row.expected_ctr_pct}% at this position), ${period?.start} → ${period?.end}.\n- Rule: ${row.rule}.\n- The expected-CTR curve is a flagging heuristic, not a forecast.\n\n## Provenance\n\n${provenance}\n`);
+    opportunity({title: `High impressions, low CTR: ${row.query}`, type: 'ctr_opportunity', dedupe_key: `ctr:${row.query}:${row.page}`, query: row.query, page: row.page, impressions: row.impressions, avg_position: row.avg_position, ctr_pct: row.ctr_pct, expected_ctr_pct: row.expected_ctr_pct, estimated_click_gain_28d: row.estimated_click_gain_28d, p_value: row.p_value, period_start: period?.start, period_end: period?.end, suggested_owner: 'marketer7'},
+      `## Evidence\n\n- Query \`${row.query}\` → \`${row.page}\`: ${row.impressions} impressions, average position ${row.avg_position}, CTR ${row.ctr_pct}% (expected ~${row.expected_ctr_pct}% at this position, ${result.ctr_curve?.source ?? 'heuristic'} curve), ${period?.start} → ${period?.end}.\n- Estimated gain if CTR reached the expected level: ~${row.estimated_click_gain_28d} clicks per 28 days (an estimate, not a forecast).\n- Below-expected CTR is significant after FDR control (p = ${row.p_value}). Rule: ${row.rule}.\n\n## Provenance\n\n${provenance}\n`);
   }
   for (const finding of result.cannibalization ?? []) {
-    opportunity({title: `Possible cannibalization: ${finding.query}`, type: 'cannibalization', dedupe_key: `cannibalization:${finding.query}`, query: finding.query, page: finding.urls.map((url) => url.page).join(' | '), query_impressions: finding.query_impressions, period_start: period?.start, period_end: period?.end, suggested_owner: 'marketer7'},
+    opportunity({title: `Possible cannibalization: ${finding.query}`, type: 'cannibalization', dedupe_key: `cannibalization:${finding.query}`, query: finding.query, page: finding.urls.map((url) => url.page).join(' | '), query_impressions: finding.query_impressions, contested_impressions: finding.contested_impressions, period_start: period?.start, period_end: period?.end, suggested_owner: 'marketer7'},
       `## Evidence\n\n${table(['URL', 'Impressions', 'Share %', 'Avg position', 'Clicks'], finding.urls.map((url) => [url.page, url.impressions, url.share_pct, url.avg_position, url.clicks])).join('\n')}\n\n- Rule: ${finding.rule}.\n- Competing URLs are evidence only; consolidation is not concluded here — intent may legitimately differ between pages.\n\n## Provenance\n\n${provenance}\n`);
   }
   for (const row of (result.striking_distance?.positions_4_15 ?? []).slice(0, Math.min(5, cap))) {
-    opportunity({title: `Positions 4–15: ${row.query}`, type: 'striking_distance', dedupe_key: `striking:${row.query}:${row.page}`, query: row.query, page: row.page, impressions: row.impressions, avg_position: row.avg_position, period_start: period?.start, period_end: period?.end, suggested_owner: 'marketer7'},
-      `## Evidence\n\n- \`${row.query}\` → \`${row.page}\`: average position ${row.avg_position}, ${row.impressions} impressions, CTR ${row.ctr_pct}% (${period?.start} → ${period?.end}).\n\n## Provenance\n\n${provenance}\n`);
+    opportunity({title: `Positions 4–15: ${row.query}`, type: 'striking_distance', dedupe_key: `striking:${row.query}:${row.page}`, query: row.query, page: row.page, impressions: row.impressions, avg_position: row.avg_position, upside_if_top3_28d: row.upside_if_top3_28d, period_start: period?.start, period_end: period?.end, suggested_owner: 'marketer7'},
+      `## Evidence\n\n- \`${row.query}\` → \`${row.page}\`: average position ${row.avg_position}, ${row.impressions} impressions, CTR ${row.ctr_pct}% (${period?.start} → ${period?.end}).\n- Hypothetical upside at about position 3: ~${row.upside_if_top3_28d} clicks per 28 days (a ranking change is not in Analyzer7's control and may not be achievable).\n\n## Provenance\n\n${provenance}\n`);
   }
   for (const row of result.content_decay ?? []) {
-    opportunity({title: `Declining page: ${row.page}`, type: 'content_decay', dedupe_key: `decay:${row.page}`, page: row.page, clicks_before: row.before.clicks, clicks_after: row.after.clicks, period_start: period?.start, period_end: period?.end, suggested_owner: 'marketer7'},
+    opportunity({title: `Declining page: ${row.page}`, type: 'content_decay', dedupe_key: `decay:${row.page}`, page: row.page, clicks_before: row.before.clicks, clicks_after: row.after.clicks, estimated_click_loss_28d: row.estimated_click_loss_28d, p_value: row.p_value, period_start: period?.start, period_end: period?.end, suggested_owner: 'marketer7'},
       `## Evidence\n\n- \`${row.page}\`: clicks ${row.before.clicks} → ${row.after.clicks} (${row.clicks_change_pct}% on a comparable basis), position ${row.before.avg_position} → ${row.after.avg_position}.\n- Rule: clicks fell by at least ${config.thresholds.decline_pct}% from at least ${config.thresholds.min_clicks_for_decline} clicks.\n\n## Provenance\n\n${provenance}\n`);
   }
   for (const finding of result.technical?.findings ?? []) {
@@ -231,6 +247,11 @@ function basisNote(period) {
   return before === after ? `_Windows: ${before} days each; clicks compared as totals._` : `_Windows: ${before} vs ${after} days; click changes are normalized per day (raw totals shown for reference)._`;
 }
 
+function significanceNote(result) {
+  const parts = [result.query_movement, result.page_movement].filter(Boolean).map((movement, index) => `${index === 0 && result.query_movement ? 'queries' : 'pages'}: ${movement.significant} of ${movement.tested} changes significant`);
+  return parts.length ? `_Listed only if the click change survives false-discovery-rate control (q = 0.1); ${parts.join('; ')}._` : '';
+}
+
 function movementLine(kind, name, row) {
   const pct = row.before.clicks > 0 ? Math.round((row.clicks_delta / row.before.clicks) * 1000) / 10 : null;
   return `- ${kind} \`${name}\`: clicks ${row.before.clicks} → ${row.after.clicks} raw (${pct === null ? 'new' : `${pct > 0 ? '+' : ''}${pct}%`} per day), position ${row.before.avg_position} → ${row.after.avg_position} (${row.movement})`;
@@ -259,10 +280,11 @@ function writeSeoReport(project, result, now) {
     {title: 'Organic trend', lines: result.overview?.headline_safe ? trendLines(result.overview, period) : ['DATA GAP — needs a date-only aggregate pull.']},
     {title: 'Top queries', lines: result.top_queries ? table(['Query', 'Impressions', 'Clicks', 'CTR %', 'Avg position'], result.top_queries.map((row) => [row.query, row.impressions, row.clicks, row.ctr_pct, row.avg_position])) : ['DATA GAP — no query-level rows.']},
     {title: 'Top pages', lines: result.top_pages ? table(['Page', 'Clicks', 'Impressions', 'CTR %', 'Avg position'], result.top_pages.map((row) => [row.page, row.clicks, row.impressions, row.ctr_pct, row.avg_position])) : ['DATA GAP — no page-level rows.']},
-    {title: 'Winning queries/pages', lines: [basisNote(period), ...(result.query_movement?.winning ?? []).map((row) => movementLine('query', row.query, row)), ...(result.page_movement?.winning ?? []).map((row) => movementLine('page', row.page, row))]},
-    {title: 'Declining queries/pages', lines: [basisNote(period), ...(result.query_movement?.declining ?? []).map((row) => movementLine('query', row.query, row)), ...(result.page_movement?.declining ?? []).map((row) => movementLine('page', row.page, row))]},
+    {title: 'Top opportunities by estimated click gain', lines: [...table(['Type', 'Subject', 'Est. clicks / 28 d', 'Basis'], (result.ranked_opportunities?.ranked ?? []).slice(0, 10).map((row) => [row.type, row.subject, row.estimated_clicks_28d, row.basis])), '', ...(result.ranked_opportunities?.hypothetical_top3_upside?.length ? ['Hypothetical upside if a positions 4–15 query reached about position 3 (not a forecast):', ...result.ranked_opportunities.hypothetical_top3_upside.map((row) => `- ${row.subject} (position ${row.position}): ~${row.upside_if_top3_28d} clicks / 28 d`)] : []), '', result.ctr_curve ? `Expected-CTR curve: ${result.ctr_curve.source} — ${result.ctr_curve.note}.` : 'Expected-CTR curve: heuristic (no query data).']},
+    {title: 'Winning queries/pages', lines: [basisNote(period), significanceNote(result), ...(result.query_movement?.winning ?? []).map((row) => movementLine('query', row.query, row)), ...(result.page_movement?.winning ?? []).map((row) => movementLine('page', row.page, row))]},
+    {title: 'Declining queries/pages', lines: [basisNote(period), significanceNote(result), ...(result.query_movement?.declining ?? []).map((row) => movementLine('query', row.query, row)), ...(result.page_movement?.declining ?? []).map((row) => movementLine('page', row.page, row))]},
     {title: 'Positions 4–15 opportunities', lines: table(['Query', 'Page', 'Avg position', 'Impressions', 'CTR %'], (result.striking_distance?.positions_4_15 ?? []).slice(0, 10).map((row) => [row.query, row.page, row.avg_position, row.impressions, row.ctr_pct]))},
-    {title: 'High-impression low-CTR opportunities', lines: table(['Query', 'Page', 'Impressions', 'Avg position', 'CTR %', 'Heuristic expected CTR %'], (result.ctr_opportunities ?? []).map((row) => [row.query, row.page, row.impressions, row.avg_position, row.ctr_pct, row.expected_ctr_pct]))},
+    {title: 'High-impression low-CTR opportunities', lines: table(['Query', 'Page', 'Impressions', 'Avg position', 'CTR %', 'Expected CTR %', 'Est. clicks / 28 d'], (result.ctr_opportunities ?? []).map((row) => [row.query, row.page, row.impressions, row.avg_position, row.ctr_pct, row.expected_ctr_pct, row.estimated_click_gain_28d]))},
     {title: 'Cannibalization candidates', lines: (result.cannibalization ?? []).flatMap((finding) => [`- \`${finding.query}\` (${finding.query_impressions} impressions): ${finding.urls.map((url) => `${url.page} pos ${url.avg_position} (${url.share_pct}%)`).join('; ')} — evidence of competition, not a consolidation decision`])},
     {title: 'Indexation issues', lines: result.indexation?.counts ? [`Counts: ${Object.entries(result.indexation.counts).map(([key, value]) => `${key} ${value}`).join(', ')}`, ...result.indexation.not_indexed.map((row) => `- ${row.url}: ${row.coverage_state}`), ...result.indexation.canonical_mismatch.map((row) => `- ${row.url}: Google canonical ${row.google_canonical} ≠ declared ${row.user_canonical}`), ...result.indexation.cannot_prove.map((row) => `- ${row.url}: cannot prove (${row.coverage_state})`), result.indexation.coverage_note] : [result.indexation?.note ?? 'DATA GAP']},
     {title: 'Technical SEO', lines: result.technical ? [`Summary: ${Object.entries(result.technical.summary).map(([key, value]) => `${key} ${value}`).join(', ') || 'no findings'}`, ...result.technical.findings.map((finding) => `- ${finding.code}: ${finding.url} — ${finding.message}`)] : ['DATA GAP — no crawl snapshot.']},

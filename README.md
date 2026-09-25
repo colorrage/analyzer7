@@ -47,6 +47,7 @@ Signal7 / Hyper7 ──► real-world change (publish/deploy)│──► Analyz
 | Signal7 publication import (idempotent), opt-in Hyper7 import (unconfirmed), Scout7 context references | Shipped, tested against Signal7's real fixture |
 | AUDIT (growth / revenue / tracking), MONITOR (guarded alerts, tracking breaks), MAINTAIN (upkeep checklist) | Shipped |
 | SEO subsystem: overview, trends, winners/decliners, positions 4–15, low-CTR, cannibalization, content decay, rank changes, technical, CWV, indexation, SEO change impact | Shipped |
+| Opportunities ranked by estimated clicks per 28 days, on an expected-CTR curve fitted to the property's own data, with false-discovery-rate control across all comparisons | Shipped |
 | Ten recipes (seo-audit, seo-weekly, experiment-analysis, growth-baseline, revenue-audit, tracking-audit, monthly-business-review, ranking-monitor, content-decay, conversion-funnel) | Shipped |
 | Redaction on every write; secret scan in validation | Shipped |
 | Optional read-only connectors: GSC (search analytics, URL inspection), GA4, crawl, PageSpeed (`connect.mjs`) | Shipped; tested against a mock that verifies the service-account JWT, and smoke-tested live |

@@ -4,6 +4,7 @@
 // (technical), and verification back to Analyzer7.
 
 import {daysInclusive, normalizePage, round} from './core.mjs';
+import {belowExpectedZ, benjaminiHochberg, pOneSidedBelow, pTwoSided, rateZ} from './stats.mjs';
 
 // ---------- aggregation ----------
 
@@ -70,27 +71,88 @@ export function expectedCtr(position, curve) {
   return points.at(-1)[1];
 }
 
-// ---------- opportunities ----------
+// ---------- expected CTR curve fitted from the property's own data ----------
 
-// High impressions, position 4–15 (configurable), CTR well under the expected
-// CTR for that position. Flag only — the title rewrite is not Analyzer7's call.
-export function ctrOpportunities(rows, config, {dimensions = ['query', 'page']} = {}) {
-  const {thresholds, expected_ctr_curve: curve} = config;
-  return rollup(rows, dimensions)
-    .filter((row) => row.impressions >= thresholds.high_impressions && row.avg_position !== null)
-    .filter((row) => row.avg_position >= 1 && row.avg_position <= thresholds.quick_win_position_max)
-    .map((row) => ({...row, expected_ctr_pct: round(expectedCtr(row.avg_position, curve), 2)}))
-    .filter((row) => row.ctr_pct !== null && row.ctr_pct < row.expected_ctr_pct * thresholds.ctr_gap_ratio)
-    .map((row) => ({...row, ctr_gap_pct_points: round(row.expected_ctr_pct - row.ctr_pct, 2), rule: `impressions >= ${thresholds.high_impressions}, position <= ${thresholds.quick_win_position_max}, CTR < ${thresholds.ctr_gap_ratio} × heuristic expected CTR`}))
-    .sort((a, b) => b.impressions * b.ctr_gap_pct_points - a.impressions * a.ctr_gap_pct_points);
+// Impression-weighted CTR per rounded position (1–20), from query×page rows.
+// Buckets with too little data fall back to the heuristic curve; the result
+// is forced non-increasing (pool-adjacent-violators, impression-weighted).
+export function fitCtrCurve(rows, fallback, {minImpressions = 500, minRows = 5, maxPosition = 20} = {}) {
+  const buckets = new Map();
+  for (const row of rollup(rows.filter((entry) => entry.query), ['query', 'page'])) {
+    if (row.avg_position === null || row.impressions <= 0) continue;
+    const position = Math.max(1, Math.round(row.avg_position));
+    if (position > maxPosition) continue;
+    const bucket = buckets.get(position) ?? {clicks: 0, impressions: 0, rows: 0};
+    bucket.clicks += row.clicks;
+    bucket.impressions += row.impressions;
+    bucket.rows += 1;
+    buckets.set(position, bucket);
+  }
+  const points = [];
+  let fitted = 0;
+  for (let position = 1; position <= maxPosition; position += 1) {
+    const bucket = buckets.get(position);
+    if (bucket && bucket.impressions >= minImpressions && bucket.rows >= minRows) {
+      points.push({position, ctr: (bucket.clicks / bucket.impressions) * 100, weight: bucket.impressions, fitted: true});
+      fitted += 1;
+    } else {
+      points.push({position, ctr: expectedCtr(position, fallback), weight: minImpressions / 10, fitted: false});
+    }
+  }
+  // Pool adjacent violators: enforce CTR non-increasing with position.
+  const blocks = points.map((point) => ({sum: point.ctr * point.weight, weight: point.weight, members: [point.position]}));
+  for (let index = 0; index < blocks.length - 1;) {
+    if (blocks[index].sum / blocks[index].weight < blocks[index + 1].sum / blocks[index + 1].weight) {
+      blocks[index] = {sum: blocks[index].sum + blocks[index + 1].sum, weight: blocks[index].weight + blocks[index + 1].weight, members: [...blocks[index].members, ...blocks[index + 1].members]};
+      blocks.splice(index + 1, 1);
+      if (index > 0) index -= 1;
+    } else {
+      index += 1;
+    }
+  }
+  const curve = {};
+  for (const block of blocks) for (const position of block.members) curve[position] = round(block.sum / block.weight, 3);
+  curve[30] = Math.min(curve[maxPosition], expectedCtr(30, fallback));
+  const source = fitted === 0 ? 'heuristic' : fitted >= 8 ? 'fitted' : 'mixed';
+  return {curve, source, fitted_buckets: fitted, note: `${fitted} of ${maxPosition} position buckets fitted from this property's query data (>= ${minImpressions} impressions, >= ${minRows} rows); the rest use the heuristic curve; forced non-increasing`};
 }
 
-export function strikingDistance(rows, config, {dimensions = ['query', 'page']} = {}) {
+// ---------- opportunities ----------
+
+const perPeriod = (value, days) => (days ? (value * 28) / days : value);
+
+// High impressions, position within reach, CTR significantly below the
+// expected CTR for that position (FDR-controlled across all candidates).
+// Ranked by estimated clicks per 28 days if CTR reached the expected level.
+export function ctrOpportunities(rows, config, {dimensions = ['query', 'page'], curve = null, days = null, q = 0.1} = {}) {
   const {thresholds} = config;
-  const rolled = rollup(rows, dimensions).filter((row) => row.impressions >= thresholds.min_impressions && row.avg_position !== null);
+  const expected = curve ?? config.expected_ctr_curve;
+  const candidates = rollup(rows, dimensions)
+    .filter((row) => row.impressions >= thresholds.high_impressions && row.avg_position !== null)
+    .filter((row) => row.avg_position >= 1 && row.avg_position <= thresholds.quick_win_position_max)
+    .map((row) => ({...row, expected_ctr_pct: round(expectedCtr(row.avg_position, expected), 2)}))
+    .filter((row) => row.ctr_pct !== null && row.ctr_pct < row.expected_ctr_pct * thresholds.ctr_gap_ratio);
+  const pValues = candidates.map((row) => pOneSidedBelow(belowExpectedZ(row.clicks, row.impressions, row.expected_ctr_pct / 100)));
+  const keep = benjaminiHochberg(pValues, q);
+  return candidates
+    .map((row, index) => ({...row, p_value: round(pValues[index], 6), significant: keep[index]}))
+    .filter((row) => row.significant)
+    .map((row) => ({...row, ctr_gap_pct_points: round(row.expected_ctr_pct - row.ctr_pct, 2), estimated_click_gain_28d: round(perPeriod((row.impressions * (row.expected_ctr_pct - row.ctr_pct)) / 100, days), 1), rule: `impressions >= ${thresholds.high_impressions}, position <= ${thresholds.quick_win_position_max}, CTR < ${thresholds.ctr_gap_ratio} × expected CTR, significant after FDR control (q = ${q}) across ${candidates.length} candidate(s)`}))
+    .sort((a, b) => b.estimated_click_gain_28d - a.estimated_click_gain_28d);
+}
+
+// Upside if the query reached about position 3 — a hypothetical, labeled as
+// such; ranked by it.
+export function strikingDistance(rows, config, {dimensions = ['query', 'page'], curve = null, days = null} = {}) {
+  const {thresholds} = config;
+  const expected = curve ?? config.expected_ctr_curve;
+  const rolled = rollup(rows, dimensions).filter((row) => row.impressions >= thresholds.min_impressions && row.avg_position !== null)
+    .map((row) => ({...row, upside_if_top3_28d: round(Math.max(0, perPeriod((row.impressions * (expectedCtr(3, expected) - (row.ctr_pct ?? 0))) / 100, days)), 1)}));
+  const byUpside = (a, b) => b.upside_if_top3_28d - a.upside_if_top3_28d;
   return {
-    positions_4_15: rolled.filter((row) => row.avg_position >= thresholds.quick_win_position_min && row.avg_position <= thresholds.quick_win_position_max).sort((a, b) => b.impressions - a.impressions),
-    positions_15_30: rolled.filter((row) => row.avg_position > thresholds.striking_distance_min && row.avg_position <= thresholds.striking_distance_max).sort((a, b) => b.impressions - a.impressions),
+    positions_4_15: rolled.filter((row) => row.avg_position >= thresholds.quick_win_position_min && row.avg_position <= thresholds.quick_win_position_max).sort(byUpside),
+    positions_15_30: rolled.filter((row) => row.avg_position > thresholds.striking_distance_min && row.avg_position <= thresholds.striking_distance_max).sort(byUpside),
+    note: 'upside_if_top3_28d is hypothetical: the clicks this query would get at about position 3 on the expected-CTR curve, per 28 days',
   };
 }
 
@@ -114,10 +176,12 @@ export function cannibalization(rows, config, {segmentKey = null} = {}) {
       ...(segmentKey ? {[segmentKey]: group[0][segmentKey] ?? null} : {}),
       query_impressions: queryImpressions,
       urls: competing.map((page) => ({page: page.page, impressions: page.impressions, share_pct: round((page.impressions / queryImpressions) * 100, 1), avg_position: page.avg_position, clicks: page.clicks})),
+      contested_impressions: competing.slice(1).reduce((total, page) => total + page.impressions, 0),
       rule: `>= 2 URLs each with >= ${thresholds.cannibalization_min_share * 100}% of the query's impressions and an average position <= ${thresholds.cannibalization_max_position ?? 20}`,
     });
   }
-  return findings.sort((a, b) => b.query_impressions - a.query_impressions);
+  // Impressions held by the non-leading URLs: how much is actually contested.
+  return findings.sort((a, b) => b.contested_impressions - a.contested_impressions);
 }
 
 // ---------- movement between periods (seo-rankings classification) ----------
@@ -148,8 +212,11 @@ export function comparePeriodsSeo(beforeRows, afterRows, {dimensions = ['query']
     const clicksAfter = current.clicks * scale;
     const positionDelta = current.avg_position !== null && previous.avg_position !== null ? round(current.avg_position - previous.avg_position, 2) : null;
     const ctrDeltaPp = current.ctr_pct !== null && previous.ctr_pct !== null ? round(current.ctr_pct - previous.ctr_pct, 2) : null;
+    const beforeDays = beforePeriod ? daysInclusive(beforePeriod.start, beforePeriod.end) : 28;
+    const afterDays = afterPeriod ? daysInclusive(afterPeriod.start, afterPeriod.end) : 28;
     moved.push({
       ...Object.fromEntries(dimensions.map((dimension) => [dimension, current[dimension]])),
+      p_value: round(pTwoSided(rateZ(previous.clicks, beforeDays, current.clicks, afterDays)), 6),
       before: previous,
       after: current,
       position_delta: positionDelta,
@@ -174,23 +241,35 @@ export function comparePeriodsSeo(beforeRows, afterRows, {dimensions = ['query']
 }
 
 // Winners and decliners by clicks (per-day normalized when lengths differ).
-export function winnersAndDecliners(comparison, {limit = 10, minClicks = 5} = {}) {
+// Only changes that survive FDR control across every compared row are listed:
+// with hundreds of queries, some "big" moves are chance.
+export function winnersAndDecliners(comparison, {limit = 10, minClicks = 5, q = 0.1} = {}) {
   const all = [...comparison.big_wins, ...comparison.improved, ...comparison.stable, ...comparison.slipping, ...comparison.dropped]
     .filter((row) => Math.max(row.before.clicks, row.after.clicks) >= minClicks);
+  const keep = benjaminiHochberg(all.map((row) => row.p_value ?? 1), q);
+  const significant = all.filter((_, index) => keep[index]);
   return {
-    winning: [...all].sort((a, b) => b.clicks_delta - a.clicks_delta).filter((row) => row.clicks_delta > 0).slice(0, limit),
-    declining: [...all].sort((a, b) => a.clicks_delta - b.clicks_delta).filter((row) => row.clicks_delta < 0).slice(0, limit),
+    tested: all.length,
+    significant: significant.length,
+    fdr_q: q,
+    winning: [...significant].sort((a, b) => b.clicks_delta - a.clicks_delta).filter((row) => row.clicks_delta > 0).slice(0, limit),
+    declining: [...significant].sort((a, b) => a.clicks_delta - b.clicks_delta).filter((row) => row.clicks_delta < 0).slice(0, limit),
   };
 }
 
-// Content decay: pages whose clicks fell by >= decline_pct between periods.
-export function contentDecay(comparison, config) {
+// Content decay: pages whose clicks fell by >= decline_pct between periods,
+// significant after FDR control; ranked by clicks lost per 28 days.
+export function contentDecay(comparison, config, {beforeDays = 28, q = 0.1} = {}) {
   const {decline_pct: declinePct, min_clicks_for_decline: minClicks} = config.thresholds;
-  return [...comparison.slipping, ...comparison.dropped, ...comparison.stable, ...comparison.improved]
+  const candidates = [...comparison.slipping, ...comparison.dropped, ...comparison.stable, ...comparison.improved]
     .filter((row) => row.before.clicks >= minClicks)
     .map((row) => ({...row, clicks_change_pct: round((row.clicks_delta / row.before.clicks) * 100, 1)}))
-    .filter((row) => row.clicks_change_pct <= -declinePct)
-    .sort((a, b) => a.clicks_change_pct - b.clicks_change_pct);
+    .filter((row) => row.clicks_change_pct <= -declinePct);
+  const keep = benjaminiHochberg(candidates.map((row) => row.p_value ?? 1), q);
+  return candidates
+    .filter((_, index) => keep[index])
+    .map((row) => ({...row, estimated_click_loss_28d: round((-row.clicks_delta * 28) / beforeDays, 1)}))
+    .sort((a, b) => b.estimated_click_loss_28d - a.estimated_click_loss_28d);
 }
 
 // ---------- rank-tracker observations ----------

@@ -42,7 +42,16 @@ Clicks are compared per day when the period lengths differ.
 | `ranking_loss_alert` | 10 | ranking anomaly |
 | `decline_pct` / `min_clicks_for_decline` | 20 / 20 | content decay |
 
-`expected_ctr_curve` is a heuristic flagging aid. Replace it with a curve fitted to the property's own data when available. It is never a forecast of clicks.
+### Expected-CTR curve, click-gain ranking, and false discoveries
+
+- **Fitted curve.** Each audit fits expected CTR by rounded position (1–20) from the property's own query×page rows. It uses impression-weighted CTR per bucket, requires ≥ 500 impressions and ≥ 5 rows, and is forced non-increasing by pool-adjacent-violators. Thin buckets fall back to `expected_ctr_curve`, the heuristic. The report states `fitted`, `mixed`, or `heuristic`.
+- **CTR opportunities** must be below half the expected CTR *and* significantly below it: a one-sided binomial test, over-dispersion adjusted, with Benjamini–Hochberg FDR q = 0.1 across all candidates. They are ranked by `estimated_click_gain_28d` = impressions × (expected − actual CTR), per 28 days.
+- **Content decay** candidates must pass the same FDR control on a per-day click rate test. They are ranked by `estimated_click_loss_28d`.
+- **Positions 4–15** carry `upside_if_top3_28d`, a hypothetical: clicks at about position 3 on the curve. It is shown separately and never mixed into the ranking.
+- **Cannibalization** is ranked by `contested_impressions`, the impressions held by the non-leading URLs. There is no click estimate.
+- **Winners and decliners** list only click changes that survive FDR control across every compared row. The report states how many were tested and how many were significant.
+
+Estimates are for prioritizing review, not forecasts.
 
 `segments` generalizes the seo-rankings markets table: `[{"key": "country", "value": "DEU", "label": "Germany", "url_prefix": "/de/", "tier": "1"}]`. Ingest a per-segment pull with `--set country=DEU`, and pass `--segment-key country` to keep cannibalization per segment.
 
