@@ -87,6 +87,10 @@ test('connectors: GSC, URL inspection, GA4, crawl and PageSpeed fetch read-only 
   const pages = await connect('gsc', '--source', 'gsc', '--start', '2026-09-01', '--end', '2026-09-20', '--dimensions', 'date,page');
   assert.equal(pages.row_count, 40);
   assert.equal((await connect('gsc-latest', '--source', 'gsc')).latest_final_date, '2026-09-20');
+  const empty = await connect('gsc', '--source', 'gsc', '--start', '2025-08-01', '--end', '2025-08-31', '--dimensions', 'date,query');
+  assert.equal(empty.row_count, 0, 'an empty dated pull is recorded, not an error');
+  assert.ok(empty.warnings.some((warning) => /no rows/.test(warning)));
+  assert.equal(empty.data_through, '2026-09-20', 'an empty pull does not move freshness');
   const inspection = await connect('inspect', '--source', 'inspection', '--top-pages', '2', '--pages-source', 'gsc', '--since', '2026-09-01');
   assert.equal(inspection.row_count, 2, 'top pages are ranked from the ingested GSC page data');
   const ga4 = await connect('ga4', '--source', 'ga4', '--start', '2026-09-01', '--end', '2026-09-03', '--dimensions', 'date,sessionDefaultChannelGroup', '--metrics', 'sessions,keyEvents');

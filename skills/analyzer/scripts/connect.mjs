@@ -52,8 +52,9 @@ const COMMANDS = {
     const filters = Object.fromEntries((args.filter ?? []).map((pair) => pair.split('=').map((part) => part.trim())));
     const response = await gscSearchAnalytics(source, {start: args.start, end: args.end, dimensions: args.dimensions, dataState: args.dataState ?? 'final', filters});
     const file = writeExport(`gsc-${args.dimensions.join('-')}-${args.start}_${args.end}.json`, response);
-    const undated = !args.dimensions.includes('date');
-    return ingestFile(root, project, source.id, {input: file, dimensions: args.dimensions, set: filters, ...(undated ? {start: args.start, end: args.end} : {})}, now);
+    // Always pass the requested window: an empty result is still a valid,
+    // recorded pull of that period (it simply does not advance freshness).
+    return ingestFile(root, project, source.id, {input: file, dimensions: args.dimensions, set: filters, start: args.start, end: args.end}, now);
   },
 
   async 'gsc-latest'(argv) {
