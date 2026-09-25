@@ -298,3 +298,16 @@ test('compaction: snapshots are gzipped, old references still resolve, and pruni
   assert.ok(validateState(directory).ok, validateState(directory).output);
   assert.ok(zlib.gunzipSync(fs.readFileSync(path.join(directory, recent.observation))).length > 0);
 });
+
+test('a timezone mismatch is informational over 7+ day windows and minor over shorter ones', () => {
+  const directory = tempDir();
+  run('init.mjs', ['--project', directory, '--seed', 'seo', '--timezone', 'Europe/Bucharest', '--now', NOW]);
+  run('record.mjs', ['source', '--project', directory, '--id', 'gsc', '--type', 'search', '--adapter', 'gsc', '--auth-method', 'mcp', '--timezone', 'America/Los_Angeles', '--stale-after-hours', '9999', '--now', NOW]);
+  run('ingest.mjs', ['--project', directory, '--source', 'gsc', '--input', writeCsv(path.join(directory, 'site.csv'), 'date,clicks,impressions,ctr,position', eightWeeks.map((date) => `${date},50,1000,0.05,6`)), '--now', NOW]);
+  const long = run('analyze.mjs', ['compare', '--project', directory, '--metric', 'organic_clicks', '--before-start', '2026-08-01', '--before-end', '2026-08-28', '--after-start', '2026-08-29', '--after-end', '2026-09-25', '--now', NOW]).analysis;
+  assert.equal(long.data_quality.issues.find((entry) => entry.code === 'timezone_mismatch').severity, 'info');
+  assert.equal(long.data_quality.level, 'high');
+  const short = run('analyze.mjs', ['compare', '--project', directory, '--metric', 'organic_clicks', '--before-start', '2026-09-20', '--before-end', '2026-09-22', '--after-start', '2026-09-23', '--after-end', '2026-09-25', '--now', NOW]).analysis;
+  assert.equal(short.data_quality.issues.find((entry) => entry.code === 'timezone_mismatch').severity, 'minor');
+  assert.equal(short.data_quality.level, 'medium');
+});

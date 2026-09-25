@@ -160,9 +160,14 @@ export function checkSample(sample, minSample, label = 'period') {
   return [];
 }
 
-export function checkTimezone(sourceTimezone, projectTimezone, sourceId) {
+// A timezone mismatch moves each day boundary by a few hours. Over windows of
+// 7+ days that shifts well under 5% of the data, so it is recorded as `info`;
+// over shorter windows a boundary shift is a material share, so `minor`.
+export function checkTimezone(sourceTimezone, projectTimezone, sourceId, period = null) {
   if (sourceTimezone && projectTimezone && sourceTimezone !== projectTimezone) {
-    return [issue('timezone_mismatch', 'minor', `${sourceId}: source reports days in ${sourceTimezone}, analysis timezone is ${projectTimezone}; day boundaries differ`)];
+    const days = period ? daysInclusive(period.start, period.end) : null;
+    const severity = days !== null && days >= 7 ? 'info' : 'minor';
+    return [issue('timezone_mismatch', severity, `${sourceId}: source reports days in ${sourceTimezone}, analysis timezone is ${projectTimezone}; day boundaries differ${severity === 'info' ? ` (negligible over a ${days}-day window)` : ''}`)];
   }
   return [];
 }

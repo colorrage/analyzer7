@@ -69,7 +69,7 @@ export function measurePeriod(root, {metric, sourceId, period, scope, label, pro
     if (!scoped && (dimensions.includes('query') || dimensions.includes('page'))) issues.push(issue('headline_unsafe', 'major', `${label}: property-level ${metric.id} derived from ${dimensions.join('×')} rows double-counts pages and omits anonymized queries; pull an aggregate (date-only) export`));
     else if (dimensions.includes('query') && !scope?.query) issues.push(issue('anonymized_queries_excluded', 'minor', `${label}: query-level rows omit anonymized queries; totals undercount`));
   }
-  issues.push(...checkTimezone(source.timezone, project.timezone, sourceId));
+  issues.push(...checkTimezone(source.timezone, project.timezone, sourceId, period));
   issues.push(...checkTrackingChanges(changes, period, label));
   return {source_id: sourceId, health, issues, rows, snapshots: selection.snapshots, value: aggregateResult.value, sample: aggregateResult.sample, kind, mapping, volumeDaily};
 }
@@ -108,7 +108,7 @@ export function analyzeComparison(root, project, {metricId, sourceId = null, bef
   const afterMeasure = measurePeriod(root, {metric, sourceId: primarySource, period: after, scope, label: 'after', project: projectData, now, changes});
   const dedupe = new Set();
   for (const entry of [...beforeMeasure.issues, ...afterMeasure.issues]) {
-    const key = entry.code === 'timezone_mismatch' || entry.code.startsWith('source_') ? entry.code : `${entry.code}:${entry.message}`;
+    const key = entry.code === 'timezone_mismatch' ? `${entry.code}:${entry.severity}` : entry.code.startsWith('source_') ? entry.code : `${entry.code}:${entry.message}`;
     if (dedupe.has(key)) continue;
     dedupe.add(key);
     issues.push(entry);

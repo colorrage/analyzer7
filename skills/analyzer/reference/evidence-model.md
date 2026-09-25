@@ -14,13 +14,13 @@ A fourth field, `evidence_grade` (A–E), comes from the metric dictionary. It i
 
 ## Data quality
 
-The level is the worst severity among the detected issues: any `blocking` issue → `insufficient`, any `major` → `low`, any `minor` → `medium`, none → `high`.
+The level is the worst severity among the detected issues: any `blocking` issue → `insufficient`, any `major` → `low`, any `minor` → `medium`, none → `high`. `info` issues are shown for transparency and never lower the level.
 
 | Check | Severity |
 | --- | --- |
 | source unavailable / unconfigured / disabled; no rows; no snapshot covering the period; period more than 50% after the data ends; more than 50% of days missing; metric only `proposed` | blocking |
 | source stale; 10–50% of days missing; duplicate row keys; negative/non-numeric values; sudden run of zero days (possible tracking break); sample below the metric minimum; tracking change inside the period; before/after snapshots with a different property, adapter version, or dimensions; cross-source discrepancy beyond tolerance; property-level GSC totals derived from query/page rows; measurement window not yet closed; recorded baseline restated by more than 10% | major |
-| up to 10% of days missing; source-reported warnings; source vs analysis timezone mismatch; non-canonical source used; query rows omitting anonymized queries; baseline restated by 1–10% | minor |
+| up to 10% of days missing; source-reported warnings; source vs analysis timezone mismatch on windows under 7 days (informational on longer windows, where it shifts a negligible share of the data); non-canonical source used; query rows omitting anonymized queries; baseline restated by 1–10% | minor |
 
 When the level is `insufficient`, no delta is reported and the conclusion is **INSUFFICIENT DATA**. Observed values stay visible and missing values stay `unknown`, never `0`.
 
